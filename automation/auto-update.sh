@@ -39,30 +39,30 @@ export DEBIAN_FRONTEND=noninteractive
 # log_info logs an informational message with a timestamp to stderr and appends the same entry to $DEFAULT_LOG_FILE.
 log_info() {
     local message="$1"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $1" >&2
-    { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $1" >> "$DEFAULT_LOG_FILE"; } 2>/dev/null || true
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $message" >&2
+    { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $message" >> "$DEFAULT_LOG_FILE"; } 2>/dev/null || true
 }
 
 # log_warning writes a timestamped WARNING message to stderr and appends the same entry to the file specified by DEFAULT_LOG_FILE.
 log_warning() {
     local message="$1"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] $1" >&2
-    { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] $1" >> "$DEFAULT_LOG_FILE"; } 2>/dev/null || true
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] $message" >&2
+    { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] $message" >> "$DEFAULT_LOG_FILE"; } 2>/dev/null || true
 }
 
 # log_error writes a timestamped ERROR message to stderr and appends the same entry to the file referenced by DEFAULT_LOG_FILE.
 log_error() {
     local message="$1"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $1" >&2
-    { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $1" >> "$DEFAULT_LOG_FILE"; } 2>/dev/null || true
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $message" >&2
+    { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $message" >> "$DEFAULT_LOG_FILE"; } 2>/dev/null || true
 }
 
 # log_debug writes a timestamped DEBUG message to stderr and appends it to $DEFAULT_LOG_FILE when AUTOMATION_LOG_LEVEL is set to "DEBUG".
 log_debug() {
     local message="$1"
     if [ "${AUTOMATION_LOG_LEVEL:-INFO}" = "DEBUG" ]; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] [DEBUG] $1" >&2
-        { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [DEBUG] $1" >> "$DEFAULT_LOG_FILE"; } 2>/dev/null || true
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] [DEBUG] $message" >&2
+        { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [DEBUG] $message" >> "$DEFAULT_LOG_FILE"; } 2>/dev/null || true
     fi
 }
 
@@ -175,7 +175,15 @@ perform_updates() {
                 # Build list of security-updated packages and upgrade only those (consistent with dist-upgrade simulation)
                 mapfile -t _sec_pkgs < <(apt-get -s dist-upgrade | awk 'BEGIN{IGNORECASE=1} /^Inst/ && /security/ {print $2}')
                 if [ "${#_sec_pkgs[@]}" -gt 0 ]; then
-                    update_output=$(apt-get install -y --only-upgrade "${_sec_pkgs[@]}" -o Dpkg::Use-Pty=0 2>&1); rc=$?
+                    update_output=""
+                    rc=0
+                    chunk_size=200
+                    for ((i=0; i<${#_sec_pkgs[@]}; i+=chunk_size)); do
+                      pkgs=( "${_sec_pkgs[@]:i:chunk_size}" )
+                      out=$(apt-get install -y --only-upgrade "${pkgs[@]}" -o Dpkg::Use-Pty=0 2>&1) || rc=$?
+                      update_output+="$out"$'\n'
+                      [ "$rc" -ne 0 ] && break
+                    done
                 else
                     update_output="No security updates available"; rc=0
                 fi

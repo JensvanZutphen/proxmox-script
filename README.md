@@ -163,12 +163,19 @@ This project uses automated formatting checks to maintain code quality. If you e
 ```bash
 ln -sf ../../.github/pre-commit-hook.sh .git/hooks/pre-commit
 ```
+# Run from repo root. Alternatively:
+# git config core.hooksPath .github && cp .github/pre-commit-hook.sh .github/hooks/pre-commit
 
 **Manual fixes:**
 ```bash
 # Fix tabs and trailing whitespace
 find . -name "*.sh" -exec sed -i -e 's/\t/    /g' -e 's/[[:space:]]*$//' {} +
 ```
+
+# GNU sed (Linux):
+#   find . -name "*.sh" -exec sed -i -e 's/\t/    /g' -e 's/[[:space:]]*$//' {} +
+# BSD/macOS sed:
+#   find . -name "*.sh" -exec sed -i '' -e 's/\t/    /g' -e 's/[[:space:]]*$//' {} +
 
 ### Running Tests
 ```bash

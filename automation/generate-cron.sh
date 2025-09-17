@@ -108,7 +108,12 @@ EOF
 
             if [ -n "$schedule" ] && validate_cron_schedule "$schedule"; then
                 echo "# $script_name" >> "$temp_file"
-                echo "$schedule root $SCRIPT_INSTALL_DIR/$script_name $script_args" >> "$temp_file"
+                # Quote script path; append args only if provided
+                if [ -n "$script_args" ]; then
+                  echo "$schedule root \"$SCRIPT_INSTALL_DIR/$script_name\" $script_args" >> "$temp_file"
+                else
+                  echo "$schedule root \"$SCRIPT_INSTALL_DIR/$script_name\"" >> "$temp_file"
+                fi
                 echo "" >> "$temp_file"
                 log_info "Added cron job for $script_name: $schedule"
             else

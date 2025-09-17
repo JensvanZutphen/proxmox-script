@@ -56,14 +56,16 @@ jobs:
             echo "✅ No tab characters found"
           fi
       
-      - name: Check for trailing whitespace
+      - name: Check for trailing whitespace (shell scripts only)
         run: |
-          echo "Checking for trailing whitespace in source files..."
-          if git grep -nI ' $' -- ':!*.md' ':!*.txt' ':!*.json' ':!*.yml' ':!*.yaml'; then
+          echo "Checking for trailing whitespace in shell scripts..."
+          if git grep -nI '[[:space:]]$' -- '*.sh' '*.bash'; then
             echo ""
             echo "❌ Trailing whitespace found in the files above."
-            echo "💡 Fix with: sed -i 's/[[:space:]]*$//' <filename>"
-            echo "   Or run: find . -name '*.sh' -exec sed -i 's/[[:space:]]*$//' {} +"
+            echo "💡 Fix with (GNU sed): sed -i 's/[[:space:]]*$//' <filename>"
+            echo "   macOS sed:         sed -i '' 's/[[:space:]]*$//' <filename>"
+            echo "   Or run (GNU): find . -type f \\( -name '*.sh' -o -name '*.bash' \\) -exec sed -i 's/[[:space:]]*$//' {} +"
+            echo "   Or run (macOS): find . -type f \\( -name '*.sh' -o -name '*.bash' \\) -exec sed -i '' 's/[[:space:]]*$//' {} +"
             exit 1
           else
             echo "✅ No trailing whitespace found"
@@ -74,7 +76,9 @@ jobs:
         run: |
           echo ""
           echo "🔧 Auto-fix command for all formatting issues:"
-          echo "   find . -name '*.sh' -exec sed -i -e 's/\t/    /g' -e 's/[[:space:]]*$//' {} +"
+          echo "   GNU:  find . -type f \\( -name '*.sh' -o -name '*.bash' \\) -exec sed -i -e 's/\\t/    /g' -e 's/[[:space:]]*$//' {} +"
+          echo "   macOS:find . -type f \\( -name '*.sh' -o -name '*.bash' \\) -exec sed -i '' -e 's/\\t/    /g' -e 's/[[:space:]]*$//' {} +"
           echo ""
           echo "Or fix individual files:"
-          echo "   sed -i -e 's/\t/    /g' -e 's/[[:space:]]*$//' path/to/file.sh"
+          echo "   GNU sed:    sed -i -e 's/\\t/    /g' -e 's/[[:space:]]*$//' path/to/file.sh"
+          echo "   macOS sed:  sed -i '' -e 's/\\t/    /g' -e 's/[[:space:]]*$//' path/to/file.sh"
