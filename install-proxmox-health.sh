@@ -83,6 +83,7 @@ TUI_NOTIFY_VMS=1
 
 # --- CLI flags ---
 USE_TUI="auto"  # values: auto|yes|no
+MODE="install" # values: install|configure
 
 # --- Colors for output ---
 RED='\033[0;31m'
@@ -122,9 +123,11 @@ usage() {
 Proxmox Health Installer v$SCRIPT_VERSION
 
 Usage: $0 [--tui|--no-tui]
+       $0 --configure [--tui|--no-tui]
 
   --tui      Force interactive TUI wizard
   --no-tui   Disable TUI and install with defaults
+  --configure Re-apply configuration only (no reinstall)
 
 EOF
 }
@@ -137,6 +140,9 @@ parse_args() {
                 ;;
             --no-tui)
                 USE_TUI="no"
+                ;;
+            --configure)
+                MODE="configure"
                 ;;
             -h|--help)
                 usage
