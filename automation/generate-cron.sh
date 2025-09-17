@@ -106,9 +106,7 @@ EOF
 EOF
 
     # Install cron file
-    if [ "$temp_file" != "$CRON_FILE" ]; then
-        mv "$temp_file" "$CRON_FILE"
-    fi
+    mv "$temp_file" "$CRON_FILE"
 
     chmod 644 "$CRON_FILE"
 
