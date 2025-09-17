@@ -480,50 +480,56 @@ check_virtual_machines() {
     local issues_found=0
 
     # Check containers
-    pct list 2>/dev/null | awk 'NR>1{print $1,$2}' > "$STATE_DIR/ct.now" || true
-    if [ -f "$STATE_DIR/ct.prev" ]; then
-        # Find stopped containers that were running
-        awk '$2=="running"{print $1}' "$STATE_DIR/ct.prev" > "$STATE_DIR/ct.prev.run"
-        awk '$2=="running"{print $1}' "$STATE_DIR/ct.now" > "$STATE_DIR/ct.now.run"
+    if command -v pct >/dev/null 2>&1; then
+        pct list 2>/dev/null | awk 'NR>1{print $1,$2}' > "$STATE_DIR/ct.now" || true
+        if [ -s "$STATE_DIR/ct.prev" ] && [ -s "$STATE_DIR/ct.now" ]; then
+            awk '$2=="running"{print $1}' "$STATE_DIR/ct.prev" > "$STATE_DIR/ct.prev.run"
+            awk '$2=="running"{print $1}' "$STATE_DIR/ct.now" > "$STATE_DIR/ct.now.run"
 
-        while read -r id; do
-            if ! grep -q "^$id$" "$STATE_DIR/ct.now.run"; then
-                alert_once "ct-$id" "warning" "Container $id stopped (was running)" "Container $id restored"
-                issues_found=1
-            fi
-        done < "$STATE_DIR/ct.prev.run"
+            while read -r id; do
+                [ -z "$id" ] && continue
+                if ! grep -q "^$id$" "$STATE_DIR/ct.now.run"; then
+                    alert_once "ct-$id" "warning" "Container $id stopped (was running)" "Container $id restored"
+                    issues_found=1
+                fi
+            done < "$STATE_DIR/ct.prev.run"
 
-        # Find started containers that were stopped
-        awk '$2=="stopped"{print $1}' "$STATE_DIR/ct.prev" > "$STATE_DIR/ct.prev.stop"
-        while read -r id; do
-            if grep -q "^$id$" "$STATE_DIR/ct.now.run"; then
-                alert_clear "ct-$id" "Container $id restored (running)"
-            fi
-        done < "$STATE_DIR/ct.prev.stop"
+            awk '$2=="stopped"{print $1}' "$STATE_DIR/ct.prev" > "$STATE_DIR/ct.prev.stop"
+            while read -r id; do
+                [ -z "$id" ] && continue
+                if grep -q "^$id$" "$STATE_DIR/ct.now.run"; then
+                    alert_clear "ct-$id" "Container $id restored (running)"
+                fi
+            done < "$STATE_DIR/ct.prev.stop"
+        fi
+        mv -f "$STATE_DIR/ct.now" "$STATE_DIR/ct.prev" 2>/dev/null || true
     fi
-    mv -f "$STATE_DIR/ct.now" "$STATE_DIR/ct.prev" 2>/dev/null || true
 
     # Check VMs
-    qm list 2>/dev/null | awk 'NR>1{print $1,$3}' > "$STATE_DIR/vm.now" || true
-    if [ -f "$STATE_DIR/vm.prev" ]; then
-        awk '$2=="running"{print $1}' "$STATE_DIR/vm.prev" > "$STATE_DIR/vm.prev.run"
-        awk '$2=="running"{print $1}' "$STATE_DIR/vm.now" > "$STATE_DIR/vm.now.run"
+    if command -v qm >/dev/null 2>&1; then
+        qm list 2>/dev/null | awk 'NR>1{print $1,$3}' > "$STATE_DIR/vm.now" || true
+        if [ -s "$STATE_DIR/vm.prev" ] && [ -s "$STATE_DIR/vm.now" ]; then
+            awk '$2=="running"{print $1}' "$STATE_DIR/vm.prev" > "$STATE_DIR/vm.prev.run"
+            awk '$2=="running"{print $1}' "$STATE_DIR/vm.now" > "$STATE_DIR/vm.now.run"
 
-        while read -r id; do
-            if ! grep -q "^$id$" "$STATE_DIR/vm.now.run"; then
-                alert_once "vm-$id" "warning" "VM $id stopped (was running)" "VM $id restored"
-                issues_found=1
-            fi
-        done < "$STATE_DIR/vm.prev.run"
+            while read -r id; do
+                [ -z "$id" ] && continue
+                if ! grep -q "^$id$" "$STATE_DIR/vm.now.run"; then
+                    alert_once "vm-$id" "warning" "VM $id stopped (was running)" "VM $id restored"
+                    issues_found=1
+                fi
+            done < "$STATE_DIR/vm.prev.run"
 
-        awk '$2=="stopped"{print $1}' "$STATE_DIR/vm.prev" > "$STATE_DIR/vm.prev.stop"
-        while read -r id; do
-            if grep -q "^$id$" "$STATE_DIR/vm.now.run"; then
-                alert_clear "vm-$id" "VM $id restored (running)"
-            fi
-        done < "$STATE_DIR/vm.prev.stop"
+            awk '$2=="stopped"{print $1}' "$STATE_DIR/vm.prev" > "$STATE_DIR/vm.prev.stop"
+            while read -r id; do
+                [ -z "$id" ] && continue
+                if grep -q "^$id$" "$STATE_DIR/vm.now.run"; then
+                    alert_clear "vm-$id" "VM $id restored (running)"
+                fi
+            done < "$STATE_DIR/vm.prev.stop"
+        fi
+        mv -f "$STATE_DIR/vm.now" "$STATE_DIR/vm.prev" 2>/dev/null || true
     fi
-    mv -f "$STATE_DIR/vm.now" "$STATE_DIR/vm.prev" 2>/dev/null || true
 
     return $issues_found
 }
