@@ -18,6 +18,10 @@ SYSTEMD_TIMER="/etc/systemd/system/proxmox-health.timer"
 SYSTEMD_SUMMARY_SERVICE="/etc/systemd/system/proxmox-health-summary.service"
 SYSTEMD_SUMMARY_TIMER="/etc/systemd/system/proxmox-health-summary.timer"
 WEBHOOK_SECRET_FILE="/etc/proxmox-health/webhook-secret"
+AUTOMATION_CONFIG_FILE="/etc/proxmox-health/automation.conf"
+# Path kept for backwards compatibility; actual generation handled by generate-cron.sh
+AUTOMATION_CRON_FILE="/etc/cron.d/proxmox-automation"
+AUTOMATION_DIR="/usr/local/lib/proxmox-health/automation"
 
 # Load defaults from the bundled configuration so TUI prompts and installers
 # reuse the same baseline values as a fresh install.
@@ -82,6 +86,14 @@ TUI_NOTIFY_TEMPS=1
 TUI_NOTIFY_BACKUPS=1
 TUI_NOTIFY_UPDATES=1
 TUI_NOTIFY_VMS=1
+
+# Automation selections (1=yes,0=no)
+TUI_AUTOMATION_ZFS_CLEANUP=0
+TUI_AUTOMATION_DISK_CLEANUP=0
+TUI_AUTOMATION_MEMORY_RELIEF=0
+TUI_AUTOMATION_SYSTEM_REFRESH=0
+TUI_AUTOMATION_AUTO_UPDATE=0
+TUI_INSTALL_AUTOMATION_TUI=0
 
 # --- CLI flags ---
 USE_TUI="auto"  # values: auto|yes|no
@@ -170,6 +182,7 @@ ensure_whiptail() {
     }
 }
 
+# run_tui runs an interactive whiptail-based TUI (when enabled and running on a tty) to collect installer choices and populate global TUI_*, SELECT_*, and related configuration variables; returns immediately if TUI is disabled or the environment is non-interactive and sets TUI_USED=1 when the UI is shown.
 run_tui() {
     # Decide whether to run TUI
     if [ "$USE_TUI" = "no" ]; then
@@ -411,6 +424,30 @@ run_tui() {
         done
     fi
 
+    # Automation features selection
+    local automation_output
+    if automation_output=$(whiptail --title "Automation Features" \
+        --checklist "Select optional automation features to install" 16 78 6 \
+        zfs_cleanup "ZFS snapshot cleanup (weekly)" OFF \
+        disk_cleanup "Emergency disk cleanup (hourly)" OFF \
+        memory_relief "Memory pressure relief (quarterly)" OFF \
+        system_refresh "System cache refresh (daily)" OFF \
+        auto_update "Security updates (weekly)" OFF \
+        automation_tui "Automation TUI interface" ON 3>&1 1>&2 2>&3); then
+        # Reset all to 0 then set selected to 1
+        TUI_AUTOMATION_ZFS_CLEANUP=0; TUI_AUTOMATION_DISK_CLEANUP=0; TUI_AUTOMATION_MEMORY_RELIEF=0; TUI_AUTOMATION_SYSTEM_REFRESH=0; TUI_AUTOMATION_AUTO_UPDATE=0; TUI_INSTALL_AUTOMATION_TUI=0
+        for tag in $automation_output; do
+            case "$tag" in
+                "\"zfs_cleanup\"") TUI_AUTOMATION_ZFS_CLEANUP=1 ;;
+                "\"disk_cleanup\"") TUI_AUTOMATION_DISK_CLEANUP=1 ;;
+                "\"memory_relief\"") TUI_AUTOMATION_MEMORY_RELIEF=1 ;;
+                "\"system_refresh\"") TUI_AUTOMATION_SYSTEM_REFRESH=1 ;;
+                "\"auto_update\"") TUI_AUTOMATION_AUTO_UPDATE=1 ;;
+                "\"automation_tui\"") TUI_INSTALL_AUTOMATION_TUI=1 ;;
+            esac
+        done
+    fi
+
     HEALTH_CHECK_INTERVAL_MINUTES="$TUI_HEALTH_INTERVAL"
     PING_TEST_HOST="$TUI_PING_HOST"
     MONITORED_BRIDGES="$TUI_MONITORED_BRIDGES"
@@ -480,6 +517,7 @@ install_dependencies() {
     print_status "Dependencies installed successfully"
 }
 
+# install_configuration installs and provisions the application's configuration: it copies the main config into INSTALL_DIR, creates webhook secret and required directories with appropriate permissions, writes a proxmox-health.conf.local populated from TUI selections when TUI is used, and invokes install_automation_configuration if any automation features were enabled.
 install_configuration() {
     print_info "Installing configuration files..."
 
@@ -579,12 +617,135 @@ install_configuration() {
         update_conf_kv "$local_conf" NOTIFY_VMS "$( [ "$TUI_NOTIFY_VMS" -eq 1 ] && echo yes || echo no )"
         update_conf_kv "$local_conf" NOTIFY_MIN_LEVEL "${TUI_NOTIFY_MIN_LEVEL:-info}"
 
+        # Install automation configuration if features selected
+        if [ "$TUI_AUTOMATION_ZFS_CLEANUP" -eq 1 ] || [ "$TUI_AUTOMATION_DISK_CLEANUP" -eq 1 ] || [ "$TUI_AUTOMATION_MEMORY_RELIEF" -eq 1 ] || [ "$TUI_AUTOMATION_SYSTEM_REFRESH" -eq 1 ] || [ "$TUI_AUTOMATION_AUTO_UPDATE" -eq 1 ]; then
+            install_automation_configuration
+        fi
+
         print_status "Applied TUI preferences to $local_conf"
     fi
 
     print_status "Configuration files installed successfully"
 }
 
+# install_automation_configuration installs the automation configuration and scripts, applies any TUI-selected automation preferences to the installed automation.conf, and (when available) runs the automation's cron-generation script to create/install scheduled jobs.
+install_automation_configuration() {
+    print_info "Installing automation configuration..."
+
+    # Create automation configuration directory
+    mkdir -p "$INSTALL_DIR/automation"
+
+    # Copy automation configuration file
+    if [ -f "$SCRIPT_DIR/config/automation.conf" ]; then
+        cp "$SCRIPT_DIR/config/automation.conf" "$AUTOMATION_CONFIG_FILE"
+        chmod 644 "$AUTOMATION_CONFIG_FILE"
+        print_status "Automation configuration file installed"
+    else
+        print_error "Automation configuration file not found: $SCRIPT_DIR/config/automation.conf"
+        exit 1
+    fi
+
+    # Create automation scripts directory
+    mkdir -p "$AUTOMATION_DIR"
+
+    # Copy automation scripts
+    if [ -d "$SCRIPT_DIR/automation" ]; then
+        cp "$SCRIPT_DIR/automation/"*.sh "$AUTOMATION_DIR/"
+        chmod 755 "$AUTOMATION_DIR/"*.sh
+        print_status "Automation scripts installed successfully"
+    else
+        print_error "Automation directory not found: $SCRIPT_DIR/automation"
+        exit 1
+    fi
+
+    # Apply TUI automation preferences to automation configuration
+    if [ "$TUI_USED" -eq 1 ]; then
+
+        # Update automation configuration based on TUI selections
+        sed -i "s|^AUTOMATION_ENABLED=.*|AUTOMATION_ENABLED=yes|" "$AUTOMATION_CONFIG_FILE"
+        sed -i "s|^AUTOMATION_ZFS_CLEANUP_ENABLED=.*|AUTOMATION_ZFS_CLEANUP_ENABLED=$( [ "$TUI_AUTOMATION_ZFS_CLEANUP" -eq 1 ] && echo yes || echo no )|" "$AUTOMATION_CONFIG_FILE"
+        sed -i "s|^AUTOMATION_DISK_CLEANUP_ENABLED=.*|AUTOMATION_DISK_CLEANUP_ENABLED=$( [ "$TUI_AUTOMATION_DISK_CLEANUP" -eq 1 ] && echo yes || echo no )|" "$AUTOMATION_CONFIG_FILE"
+        sed -i "s|^AUTOMATION_MEMORY_RELIEF_ENABLED=.*|AUTOMATION_MEMORY_RELIEF_ENABLED=$( [ "$TUI_AUTOMATION_MEMORY_RELIEF" -eq 1 ] && echo yes || echo no )|" "$AUTOMATION_CONFIG_FILE"
+        sed -i "s|^AUTOMATION_SYSTEM_REFRESH_ENABLED=.*|AUTOMATION_SYSTEM_REFRESH_ENABLED=$( [ "$TUI_AUTOMATION_SYSTEM_REFRESH" -eq 1 ] && echo yes || echo no )|" "$AUTOMATION_CONFIG_FILE"
+        sed -i "s|^AUTOMATION_AUTO_UPDATE_ENABLED=.*|AUTOMATION_AUTO_UPDATE_ENABLED=$( [ "$TUI_AUTOMATION_AUTO_UPDATE" -eq 1 ] && echo yes || echo no )|" "$AUTOMATION_CONFIG_FILE"
+
+        print_status "Applied TUI automation preferences to $AUTOMATION_CONFIG_FILE"
+    fi
+
+    # Generate and install cron jobs for automation
+    if command -v "$AUTOMATION_DIR/generate-cron.sh" >/dev/null 2>&1; then
+        "$AUTOMATION_DIR/generate-cron.sh" --generate
+        print_status "Automation cron jobs generated and installed"
+        # Inform about cron file location to surface variable usage
+        if [ -f "$AUTOMATION_CRON_FILE" ]; then
+            print_status "Automation cron file: $AUTOMATION_CRON_FILE"
+        fi
+    else
+        print_warning "Automation cron generation script not found"
+    fi
+
+    print_status "Automation configuration installed successfully"
+}
+
+# install_automation_tui installs the Automation TUI components and a launcher script for managing automation features.
+# It creates the TUI directory under /usr/local/lib/proxmox-health, copies the packaged TUI framework scripts, writes an executable launcher at BIN_DIR/proxmox-automation-tui.sh, sets appropriate permissions, and (if present) installs an emergency-stop helper.
+install_automation_tui() {
+    print_info "Installing automation TUI interface..."
+
+    # Create TUI directory
+    local tui_dir="/usr/local/lib/proxmox-health/tui"
+    mkdir -p "$tui_dir"
+
+    # Copy TUI framework files
+    if [ -d "$SCRIPT_DIR/tui" ]; then
+        cp "$SCRIPT_DIR/tui/"*.sh "$tui_dir/"
+        chmod 644 "$tui_dir/"*.sh
+        chmod 755 "$tui_dir/proxmox-tui.sh"
+        print_status "TUI framework files installed"
+    else
+        print_error "TUI directory not found: $SCRIPT_DIR/tui"
+        exit 1
+    fi
+
+    # Create automation TUI launcher script
+    cat > "$BIN_DIR/proxmox-automation-tui.sh" << 'EOF'
+#!/bin/bash
+# Proxmox Automation TUI Launcher
+# This script launches the automation management interface
+
+# Load configuration
+source "/etc/proxmox-health/automation.conf"
+source "/usr/local/lib/proxmox-health/tui/common-ui.sh"
+source "/usr/local/lib/proxmox-health/tui/automation-ui.sh"
+
+# Main function
+main() {
+    # Initialize TUI framework
+    initialize_tui_framework
+
+    # Show automation management interface
+    show_automation_management
+}
+
+# Run main function
+main "$@"
+EOF
+
+    # Set permissions
+    chmod 755 "$BIN_DIR/proxmox-automation-tui.sh"
+
+    print_status "Automation TUI interface installed successfully"
+    print_info "You can now run: $BIN_DIR/proxmox-automation-tui.sh"
+
+    # Install emergency stop helper
+    if [ -f "$SCRIPT_DIR/automation/emergency-stop.sh" ]; then
+        cp "$SCRIPT_DIR/automation/emergency-stop.sh" "$BIN_DIR/proxmox-automation-stop"
+        chmod 755 "$BIN_DIR/proxmox-automation-stop"
+        print_status "Installed emergency stop: $BIN_DIR/proxmox-automation-stop"
+    fi
+}
+
+# install_libraries copies shell library files from SCRIPT_DIR/lib into LIB_DIR, sets file permissions to 644, and exits with an error if the source library directory is missing.
 install_libraries() {
     print_info "Installing library files..."
 
@@ -1118,6 +1279,7 @@ test_installation() {
     print_status "Installation smoke tests completed"
 }
 
+# show_completion_message prints a post-installation summary listing installed files, configuration paths, example assets, suggested next steps, and useful commands.
 show_completion_message() {
     cat <<EOF
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1136,6 +1298,7 @@ show_completion_message() {
   • $BIN_DIR/proxmox-notify.sh
   • $BIN_DIR/proxmox-health-summary.sh
   • $BIN_DIR/proxmox-maintenance.sh
+  • $BIN_DIR/proxmox-automation-tui.sh (Automation Management)
 
 📁 Example Assets
   • Custom check: $INSTALL_DIR/custom-checks/example-custom-check.sh
@@ -1154,13 +1317,20 @@ show_completion_message() {
   • Enable maintenance:   $BIN_DIR/proxmox-maintenance.sh enable 2h "Reason"
   • Disable maintenance:  $BIN_DIR/proxmox-maintenance.sh disable
   • Manual health check:  $BIN_DIR/proxmox-healthcheck.sh
+  • Automation management: $BIN_DIR/proxmox-automation-tui.sh
 
 Logs and timers are active—monitoring starts now. 🌐
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 EOF
 }
 
-# --- Main Installation Process ---
+# main orchestrates the end-to-end installation and configuration of the Proxmox Health Monitoring System.
+# It performs prerequisite checks, parses CLI arguments, optionally runs the TUI, and supports a
+# "configure-only" mode that applies configuration and scheduling without re-installing other components.
+# The function backups any existing installation, installs selected components (dependencies, config,
+# libraries, binaries, cron, logrotate, systemd, examples, initial config, and optional automation TUI),
+# reconciles scheduler selection (systemd vs cron), runs smoke tests when core components were installed,
+# and prints a completion summary. It may exit early on fatal checks or after completing a configure-only run.
 main() {
     print_info "Starting Proxmox Health Monitoring System installation..."
     print_info "Version: $SCRIPT_VERSION"
@@ -1201,6 +1371,7 @@ main() {
     if [ "$SELECT_SYSTEMD" -eq 1 ]; then install_systemd; else print_info "Skipped systemd"; fi
     if [ "$SELECT_EXAMPLES" -eq 1 ]; then create_example_configs; else print_info "Skipped example configs"; fi
     if [ "$SELECT_INIT" -eq 1 ]; then setup_initial_configuration; else print_info "Skipped initial configuration"; fi
+    if [ "$TUI_INSTALL_AUTOMATION_TUI" -eq 1 ]; then install_automation_tui; else print_info "Skipped automation TUI"; fi
 
     # Apply scheduler selection
     configure_scheduler_selection
