@@ -461,10 +461,41 @@ initialize_notifications() {
     log_info "Notification system initialized successfully"
 }
 
+# --- Automation Notification Functions ---
+send_automation_notification() {
+    local message="$1"
+    local level="${2:-info}"
+    local operation="${3:-automation}"
+
+    # Get notification preferences from automation config
+    local notify_success="${AUTOMATION_NOTIFY_ON_SUCCESS:-yes}"
+    local notify_failure="${AUTOMATION_NOTIFY_ON_FAILURE:-critical}"
+
+    # Determine if we should send notification
+    local should_send=false
+    case "$level" in
+        critical) should_send=true ;;
+        error) should_send=true ;;
+        warning)
+            [ "$notify_failure" = "critical" ] || [ "$notify_failure" = "warning" ] && should_send=true
+            ;;
+        info)
+            [ "$notify_success" = "yes" ] && should_send=true
+            ;;
+    esac
+
+    if [ "$should_send" = "true" ]; then
+        send_discord_notification "$message" "$level" "$operation"
+    else
+        log_debug "Automation notification suppressed: $level for $operation"
+    fi
+}
+
 # Export functions
 export -f get_notification_state set_notification_state clear_notification_state
 export -f is_notification_cooldown_active get_alert_level
 export -f send_discord_notification send_email_notification send_system_log_notification
+export -f send_automation_notification
 # --- Topic mapping ---
 category_for_key() {
     local key="$1"
