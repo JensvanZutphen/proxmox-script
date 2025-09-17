@@ -78,7 +78,12 @@ check_zfs_pools() {
     local issues_found=0
 
     if command -v zpool >/dev/null 2>&1; then
-        # Check pool health
+        local pool_list
+        pool_list=$(zpool list -H 2>/dev/null || true)
+        if [ -z "${pool_list//\n/}" ] || grep -qi "no pools available" <<< "$pool_list"; then
+            return 0
+        fi
+
         if ! zpool status -x 2>/dev/null | grep -qi "all pools are healthy"; then
             alert_once "zfs-health" "critical" "ZFS pool degraded or errors present" "ZFS pool healthy"
             issues_found=1
@@ -86,7 +91,6 @@ check_zfs_pools() {
             alert_clear "zfs-health" "All ZFS pools healthy"
         fi
 
-        # Check pool capacity
         while read -r name _ _ _ cap _ _ _; do
             cap="${cap:-0}"
             key="zfs-cap-$name"
@@ -363,47 +367,48 @@ check_temperatures() {
     fi
 
     # Check disk temperatures
-    while IFS= read -r dev; do
-        [ -z "$dev" ] && continue
+    if command -v smartctl >/dev/null 2>&1; then
+        while IFS= read -r dev; do
+            [ -b "$dev" ] || continue
 
-        if timeout 10s smartctl -H "$dev" >/tmp/smth.$$ 2>/dev/null; then
-            if ! grep -q "PASSED" /tmp/smth.$$; then
-                alert_once "smart-$dev" "critical" "SMART health problem on $dev" "SMART health restored on $dev"
-                issues_found=1
-            else
-                alert_clear "smart-$dev" "SMART health OK on $dev"
-            fi
-        fi
-
-        # Check temperature
-        local temp
-        temp=$(timeout 10s smartctl -A "$dev" 2>/dev/null | awk '/Temperature_Celsius|Temperature Composite|Current Drive Temperature|Temperature:/ {for(i=1;i<=NF;i++){if($i+0==$i){print int($i); exit}}}')
-        if [ -n "${temp:-}" ]; then
-            if [[ "$dev" == *"nvme"* ]]; then
-                if [ "$temp" -ge "$SSD_TEMPERATURE_CRITICAL_THRESHOLD" ]; then
-                    alert_once "temp-$dev" "critical" "SSD temperature critically high: ${temp}°C" "SSD temperature restored"
-                    issues_found=1
-                elif [ "$temp" -ge "$SSD_TEMPERATURE_WARNING_THRESHOLD" ]; then
-                    alert_once "temp-$dev" "warning" "SSD temperature high: ${temp}°C" "SSD temperature restored"
+            if timeout 10s smartctl -H "$dev" >/tmp/smth.$$ 2>/dev/null; then
+                if ! grep -q "PASSED" /tmp/smth.$$; then
+                    alert_once "smart-$dev" "critical" "SMART health problem on $dev" "SMART health restored on $dev"
                     issues_found=1
                 else
-                    alert_clear "temp-$dev" "SSD temperature normal: ${temp}°C"
-                fi
-            else
-                if [ "$temp" -ge "$HDD_TEMPERATURE_CRITICAL_THRESHOLD" ]; then
-                    alert_once "temp-$dev" "critical" "HDD temperature critically high: ${temp}°C" "HDD temperature restored"
-                    issues_found=1
-                elif [ "$temp" -ge "$HDD_TEMPERATURE_WARNING_THRESHOLD" ]; then
-                    alert_once "temp-$dev" "warning" "HDD temperature high: ${temp}°C" "HDD temperature restored"
-                    issues_found=1
-                else
-                    alert_clear "temp-$dev" "HDD temperature normal: ${temp}°C"
+                    alert_clear "smart-$dev" "SMART health OK on $dev"
                 fi
             fi
-        fi
 
-        rm -f /tmp/smth.$$ || true
-    done < <(list_disks)
+            local temp
+            temp=$(timeout 10s smartctl -A "$dev" 2>/dev/null | awk '/Temperature_Celsius|Temperature Composite|Current Drive Temperature|Temperature:/ {for(i=1;i<=NF;i++){if($i+0==$i){print int($i); exit}}}')
+            if [ -n "${temp:-}" ]; then
+                if [[ "$dev" == *"nvme"* ]]; then
+                    if [ "$temp" -ge "$SSD_TEMPERATURE_CRITICAL_THRESHOLD" ]; then
+                        alert_once "temp-$dev" "critical" "SSD temperature critically high: ${temp}°C" "SSD temperature restored"
+                        issues_found=1
+                    elif [ "$temp" -ge "$SSD_TEMPERATURE_WARNING_THRESHOLD" ]; then
+                        alert_once "temp-$dev" "warning" "SSD temperature high: ${temp}°C" "SSD temperature restored"
+                        issues_found=1
+                    else
+                        alert_clear "temp-$dev" "SSD temperature normal: ${temp}°C"
+                    fi
+                else
+                    if [ "$temp" -ge "$HDD_TEMPERATURE_CRITICAL_THRESHOLD" ]; then
+                        alert_once "temp-$dev" "critical" "HDD temperature critically high: ${temp}°C" "HDD temperature restored"
+                        issues_found=1
+                    elif [ "$temp" -ge "$HDD_TEMPERATURE_WARNING_THRESHOLD" ]; then
+                        alert_once "temp-$dev" "warning" "HDD temperature high: ${temp}°C" "HDD temperature restored"
+                        issues_found=1
+                    else
+                        alert_clear "temp-$dev" "HDD temperature normal: ${temp}°C"
+                    fi
+                fi
+            fi
+
+            rm -f /tmp/smth.$$ || true
+        done < <(list_disks)
+    fi
 
     return $issues_found
 }
@@ -526,7 +531,9 @@ check_virtual_machines() {
 # --- Helper function to list disks ---
 list_disks() {
     lsblk -ndo NAME,TYPE | awk '$2=="disk"{print "/dev/"$1}'
-    ls /dev/nvme*n* 2>/dev/null || true
+    for dev in /dev/nvme*n*; do
+        [ -e "$dev" ] && printf '%s\n' "$dev"
+    done
 }
 
 # --- Main health check function ---
