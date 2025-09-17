@@ -27,7 +27,9 @@ if [[ ! -f "$CONFIG_DIR/proxmox-health.conf" ]]; then
     exit 1
 fi
 
-# Main menu function
+# show_main_menu displays the top-level TUI for the Proxmox Health Monitor and dispatches the user's choice to the corresponding submenu.
+# It presents a persistent menu (Health Status, Configuration, Monitoring, Maintenance, Automation, Exit),
+# loops until the user selects Exit, and routes selections to the appropriate handler functions.
 show_main_menu() {
     while true; do
         CHOICE=$(whiptail --title "Proxmox Health Monitor TUI" --menu "Select an option:" 15 70 6 \
@@ -50,7 +52,7 @@ show_main_menu() {
     done
 }
 
-# Health Status Tab
+# show_health_status displays a Whiptail menu for Health Status, letting the user view the current health summary, system metrics, recent alerts, run a health check immediately, or return to the main menu.
 show_health_status() {
     while true; do
         CHOICE=$(whiptail --title "Health Status" --menu "Select health information:" 15 60 5 \
@@ -71,7 +73,7 @@ show_health_status() {
     done
 }
 
-# Configuration Tab
+# show_configuration presents the Configuration menu via whiptail and dispatches to the appropriate handlers (view_current_config, edit_configuration, test_notifications, view_config_files) in a loop until the user selects Back to Main Menu.
 show_configuration() {
     while true; do
         CHOICE=$(whiptail --title "Configuration" --menu "Select configuration option:" 15 60 5 \
@@ -92,7 +94,7 @@ show_configuration() {
     done
 }
 
-# Monitoring Tab
+# show_monitoring displays the Monitoring menu and dispatches user selections to view status, toggle monitoring, view check history, view log files, or return to the main menu.
 show_monitoring() {
     while true; do
         CHOICE=$(whiptail --title "Monitoring" --menu "Select monitoring option:" 15 60 5 \
@@ -113,7 +115,7 @@ show_monitoring() {
     done
 }
 
-# Maintenance Tab
+# show_maintenance displays the Maintenance menu in the TUI and loops until the user returns to the main menu. It presents options to toggle maintenance mode, view maintenance status, schedule maintenance, or view maintenance history, and dispatches the selected choice to the corresponding handler.
 show_maintenance() {
     while true; do
         CHOICE=$(whiptail --title "Maintenance" --menu "Select maintenance option:" 15 60 5 \
@@ -134,7 +136,8 @@ show_maintenance() {
     done
 }
 
-# Automation Tab
+# show_automation displays the Automation Management menu, showing current status for each automation task and allowing the user to configure tasks, view automation logs, run test routines, or return to the main menu.
+# show_automation runs an interactive whiptail loop and dispatches to the appropriate helper (configure_*, view_automation_logs, test_automation_functions); it returns when the user selects "Back to Main Menu".
 show_automation() {
     while true; do
         CHOICE=$(whiptail --title "Automation Management" --menu "Select automation task:" 20 70 8 \
@@ -161,7 +164,7 @@ show_automation() {
     done
 }
 
-# Health Status Functions
+# view_health_summary displays the system health summary in a whiptail textbox by running the proxmox-health-summary.sh script; shows an error dialog if the script is not found.
 view_health_summary() {
     if [[ -f "$LIB_DIR/proxmox-health-summary.sh" ]]; then
         "$LIB_DIR/proxmox-health-summary.sh" | whiptail --title "Health Summary" --textbox - 20 80
@@ -170,6 +173,8 @@ view_health_summary() {
     fi
 }
 
+# view_system_metrics displays key system metrics (kernel info, uptime, memory usage, disk usage, and process count) in a whiptail textbox.
+# It writes output to a temporary file for display and removes the temp file when done.
 view_system_metrics() {
     # Create temporary file with system metrics
     temp_file=$(mktemp)
@@ -194,6 +199,7 @@ view_system_metrics() {
     rm -f "$temp_file"
 }
 
+# view_recent_alerts displays the most recent WARNING/ERROR/CRITICAL entries from /var/log/proxmox-health/proxmox-health.log in a whiptail textbox; shows an error dialog if the log file is not present.
 view_recent_alerts() {
     if [[ -f "/var/log/proxmox-health/proxmox-health.log" ]]; then
         tail -n 50 "/var/log/proxmox-health/proxmox-health.log" | grep -E "(WARNING|ERROR|CRITICAL)" | whiptail --title "Recent Alerts" --textbox - 20 80
@@ -202,6 +208,7 @@ view_recent_alerts() {
     fi
 }
 
+# run_health_check prompts to run a full health check, runs the proxmox-healthcheck.sh script if present, displays its output in a whiptail textbox, and removes the temporary file (shows an error dialog if the script is missing).
 run_health_check() {
     if whiptail --title "Run Health Check" --yesno "Run a full health check now? This may take a few moments." 8 40; then
         if [[ -f "$LIB_DIR/proxmox-healthcheck.sh" ]]; then
@@ -215,7 +222,7 @@ run_health_check() {
     fi
 }
 
-# Configuration Functions
+# view_current_config displays /etc/proxmox-health/proxmox-health.conf in a whiptail textbox if the file exists; otherwise it shows an error message.
 view_current_config() {
     if [[ -f "$CONFIG_DIR/proxmox-health.conf" ]]; then
         whiptail --title "Current Configuration" --textbox "$CONFIG_DIR/proxmox-health.conf" 20 80
@@ -224,12 +231,14 @@ view_current_config() {
     fi
 }
 
+# edit_configuration shows a dialog with instructions for editing the local and global Proxmox Health configuration files and reminding the user to restart the monitoring service after changes.
 edit_configuration() {
     whiptail --title "Edit Configuration" --msgbox \
         "To edit configuration:\n\n1. Edit /etc/proxmox-health/proxmox-health.conf.local\n2. For global settings, edit /etc/proxmox-health/proxmox-health.conf\n3. Restart the monitoring service after changes" \
         12 60
 }
 
+# test_notifications prompts to send a test notification via proxmox-notify.sh and, if sent, captures and displays the script output (shows an error dialog if the script is missing).
 test_notifications() {
     if [[ -f "$LIB_DIR/proxmox-notify.sh" ]]; then
         if whiptail --title "Test Notifications" --yesno "Send a test notification to verify the notification system is working?" 8 50; then
@@ -243,6 +252,7 @@ test_notifications() {
     fi
 }
 
+# view_config_files displays configuration files, cron job entries, and proxmox-related systemd unit listings in a temporary file shown via a whiptail textbox.
 view_config_files() {
     temp_file=$(mktemp)
     {
@@ -260,7 +270,7 @@ view_config_files() {
     rm -f "$temp_file"
 }
 
-# Monitoring Functions
+# view_monitoring_status displays monitoring timer status (active/enabled) and the last 10 journal entries for proxmox-healthcheck.service in a whiptail textbox. It creates a temporary file for the output, prints a fallback message if no journal entries are found, and removes the temporary file when done.
 view_monitoring_status() {
     temp_file=$(mktemp)
     {
@@ -276,6 +286,7 @@ view_monitoring_status() {
     rm -f "$temp_file"
 }
 
+# toggle_monitoring toggles the proxmox-healthcheck.timer: it detects whether the timer is active and interactively prompts the user (via whiptail) to start or stop it, invoking systemctl with sudo when confirmed.
 toggle_monitoring() {
     if systemctl is-active --quiet proxmox-healthcheck.timer; then
         if whiptail --title "Toggle Monitoring" --yesno "Monitoring is currently active. Do you want to stop it?" 8 50; then
@@ -290,6 +301,7 @@ toggle_monitoring() {
     fi
 }
 
+# view_check_history displays the last 100 lines of /var/log/proxmox-health/proxmox-health.log in a whiptail textbox; if the log is missing, shows an error message.
 view_check_history() {
     if [[ -f "/var/log/proxmox-health/proxmox-health.log" ]]; then
         tail -n 100 "/var/log/proxmox-health/proxmox-health.log" | whiptail --title "Check History" --textbox - 20 80
@@ -298,6 +310,7 @@ view_check_history() {
     fi
 }
 
+# view_log_files displays the contents of /var/log/proxmox-health by listing the directory and showing the last 20 lines of proxmox-health.log in a whiptail textbox; if the directory is missing, it displays an error message.
 view_log_files() {
     if [[ -d "/var/log/proxmox-health" ]]; then
         temp_file=$(mktemp)
@@ -316,7 +329,9 @@ view_log_files() {
     fi
 }
 
-# Automation Configuration Functions
+# configure_zfs_cleanup manages the ZFS snapshot cleanup automation settings via an interactive whiptail menu.
+# It loads the current automation config, lets the user enable/disable the task, set a cron schedule, or set retention days (1–365),
+# validates numeric input, persists changes with save_automation_config, and displays success/error messages to the user.
 configure_zfs_cleanup() {
     load_automation_config
 
@@ -362,6 +377,8 @@ configure_zfs_cleanup() {
     done
 }
 
+# configure_disk_cleanup presents an interactive whiptail menu to configure the emergency disk cleanup automation.
+# It lets the user enable/disable the feature, set a cron schedule, and set a disk-usage threshold (1–100%). Inputs are validated where applicable and changes are persisted to the automation configuration.
 configure_disk_cleanup() {
     load_automation_config
 
@@ -407,6 +424,9 @@ configure_disk_cleanup() {
     done
 }
 
+# configure_memory_relief opens an interactive whiptail menu to view and modify the memory pressure relief automation settings.
+# It loads the current automation config, lets the user enable/disable the feature, set a cron schedule, or set a numeric memory-threshold percentage,
+# validates the threshold with `validate_percentage`, persists changes via `save_automation_config`, and displays success/error messages via UI helpers.
 configure_memory_relief() {
     load_automation_config
 
@@ -452,6 +472,10 @@ configure_memory_relief() {
     done
 }
 
+# configure_system_refresh configures the system cache refresh automation.
+# It presents a menu to enable/disable the system refresh task or to set its cron schedule
+# (expected format: "min hour day month weekday"). Changes are saved with save_automation_config
+# and the current state is loaded from the automation config before showing the menu.
 configure_system_refresh() {
     load_automation_config
 
@@ -486,6 +510,8 @@ configure_system_refresh() {
     done
 }
 
+# configure_auto_update presents an interactive whiptail menu to view and modify the auto-update automation settings and persists changes to the automation config.
+# Options allow enabling/disabling auto-updates, setting a cron schedule, and toggling "security only" updates; changes are saved via save_automation_config.
 configure_auto_update() {
     load_automation_config
 
@@ -530,6 +556,7 @@ configure_auto_update() {
     done
 }
 
+# view_automation_logs gathers current automation settings, recent automation-related log entries, and automation cron job configuration, then displays them in a temporary whiptail textbox.
 view_automation_logs() {
     temp_file=$(create_temp_file)
     {
@@ -561,6 +588,7 @@ view_automation_logs() {
     cleanup_temp_file "$temp_file"
 }
 
+# test_automation_functions presents an interactive menu to run non-destructive `--test` invocations of automation scripts (zfs-cleanup, disk-cleanup, memory-relief, system-refresh, auto-update), displays up to 50 lines of each script's output in a textbox, and handles missing scripts gracefully.
 test_automation_functions() {
     while true; do
         CHOICE=$(whiptail --title "Test Automation Functions" --menu "Select function to test:" 15 60 6 \
@@ -643,7 +671,7 @@ test_automation_functions() {
     done
 }
 
-# Maintenance Functions
+# toggle_maintenance_mode toggles maintenance mode (after user confirmation) by running the proxmox-maintenance.sh helper and displays the helper's output in a textbox; if the helper is missing, shows an error message.
 toggle_maintenance_mode() {
     if [[ -f "$LIB_DIR/proxmox-maintenance.sh" ]]; then
         if whiptail --title "Toggle Maintenance Mode" --yesno "Do you want to toggle maintenance mode? This will silence alerts during maintenance." 8 60; then
@@ -657,6 +685,7 @@ toggle_maintenance_mode() {
     fi
 }
 
+# view_maintenance_status displays the current maintenance schedule from "$CONFIG_DIR/maintenance.schedule" in a whiptail textbox, or shows a message box when no schedule file is present.
 view_maintenance_status() {
     if [[ -f "$CONFIG_DIR/maintenance.schedule" ]]; then
         whiptail --title "Maintenance Status" --textbox "$CONFIG_DIR/maintenance.schedule" 15 60
@@ -665,12 +694,14 @@ view_maintenance_status() {
     fi
 }
 
+# schedule_maintenance displays a whiptail message with instructions for scheduling maintenance (edit /etc/proxmox-health/maintenance.schedule using the format "YYYY-MM-DD HH:MM YYYY-MM-DD HH:MM" or use proxmox-maintenance.sh).
 schedule_maintenance() {
     whiptail --title "Schedule Maintenance" --msgbox \
         "To schedule maintenance:\n\n1. Edit /etc/proxmox-health/maintenance.schedule\n2. Use the format: YYYY-MM-DD HH:MM YYYY-MM-DD HH:MM\n3. Or use the proxmox-maintenance.sh script" \
         12 60
 }
 
+# view_maintenance_history displays the last 20 maintenance-related entries from /var/log/proxmox-health/proxmox-health.log in a whiptail textbox, or shows an error message if the log file is not present.
 view_maintenance_history() {
     if [[ -f "/var/log/proxmox-health/proxmox-health.log" ]]; then
         grep -i "maintenance" "/var/log/proxmox-health/proxmox-health.log" | tail -n 20 | whiptail --title "Maintenance History" --textbox - 15 60
@@ -679,7 +710,7 @@ view_maintenance_history() {
     fi
 }
 
-# Main execution
+# main checks for the presence of `whiptail`, displays a welcome message for the Proxmox Health Monitoring TUI, and launches the main menu; exits with status 1 if `whiptail` is not installed.
 main() {
     # Check for whiptail
     if ! command -v whiptail &> /dev/null; then

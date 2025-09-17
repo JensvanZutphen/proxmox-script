@@ -15,25 +15,28 @@ DEFAULT_SECURITY_ONLY="yes"
 DEFAULT_EXCLUDE_PACKAGES=("kernel*" "proxmox*" "pve-*")
 DEFAULT_LOG_FILE="/var/log/proxmox-health/auto-update.log"
 
-# --- Functions ---
+# log_info logs an informational message with a timestamp to stderr and appends the same entry to $DEFAULT_LOG_FILE.
 log_info() {
     local message="$1"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $1" >&2
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $1" >> "$DEFAULT_LOG_FILE"
 }
 
+# log_warning writes a timestamped WARNING message to stderr and appends the same entry to the file specified by DEFAULT_LOG_FILE.
 log_warning() {
     local message="$1"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] $1" >&2
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] $1" >> "$DEFAULT_LOG_FILE"
 }
 
+# log_error writes a timestamped ERROR message to stderr and appends the same entry to the file referenced by DEFAULT_LOG_FILE.
 log_error() {
     local message="$1"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $1" >&2
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $1" >> "$DEFAULT_LOG_FILE"
 }
 
+# log_debug writes a timestamped DEBUG message to stderr and appends it to $DEFAULT_LOG_FILE when AUTOMATION_LOG_LEVEL is set to "DEBUG".
 log_debug() {
     local message="$1"
     if [ "${AUTOMATION_LOG_LEVEL:-INFO}" = "DEBUG" ]; then
@@ -42,6 +45,7 @@ log_debug() {
     fi
 }
 
+# send_automation_notification sends an automation-scoped notification with the given message and level, but only emits info-level notifications if AUTOMATION_NOTIFY_ON_SUCCESS="yes" and only emits error/critical notifications when AUTOMATION_NOTIFY_ON_FAILURE is set to "warning" or "critical".
 send_automation_notification() {
     local message="$1"
     local level="${2:-info}"
@@ -60,6 +64,7 @@ send_automation_notification() {
     send_notification "$message" "$level" "automation"
 }
 
+# check_package_manager detects the available system package manager and echoes one of: "apt", "yum", "dnf", or "unknown".
 check_package_manager() {
     if command -v apt-get >/dev/null 2>&1; then
         echo "apt"
@@ -72,6 +77,9 @@ check_package_manager() {
     fi
 }
 
+# update_package_lists updates the system package index for the specified package manager.
+# If `dry_run` is "yes", it logs the intended action and returns success without making changes.
+# Returns non-zero when the provided package manager is unsupported.
 update_package_lists() {
     local package_manager="$1"
     local dry_run="$2"
@@ -103,6 +111,7 @@ update_package_lists() {
     return 0
 }
 
+# list_available_updates returns the number of available package updates for the specified package manager (`apt`, `yum`, or `dnf`); when `security_only` is "yes" it attempts to count only security-relevant updates, otherwise it counts all available updates.
 list_available_updates() {
     local package_manager="$1"
     local security_only="$2"
@@ -137,6 +146,8 @@ list_available_updates() {
     esac
 }
 
+# perform_updates performs system package updates using the specified package manager; supports a security-only mode and a dry-run mode and returns 0 on success or 1 on failure.
+# When not in dry-run mode, it runs the appropriate package manager command for apt/yum/dnf, treats the presence of "error", "failed", or "exception" in the command output as a failure, and returns non-zero for unsupported package managers.
 perform_updates() {
     local package_manager="$1"
     local security_only="$2"
@@ -193,6 +204,7 @@ perform_updates() {
     return $([ "$update_success" = true ] && echo 0 || echo 1)
 }
 
+# cleanup_package_cache removes package manager caches for the given package manager (`apt`, `yum`, or `dnf`); does nothing for unknown managers.
 cleanup_package_cache() {
     local package_manager="$1"
 
@@ -213,6 +225,7 @@ cleanup_package_cache() {
     esac
 }
 
+# perform_auto_update orchestrates the full system update workflow: it detects the package manager, refreshes package lists, counts and applies available updates (honoring `security_only="yes|no"` and `dry_run="yes|no"`), cleans package caches, sends start/completion notifications, logs progress, and returns 0 on overall success or 1 on failure.
 perform_auto_update() {
     local security_only="$1"
     local dry_run="$2"
@@ -292,6 +305,7 @@ perform_auto_update() {
     return $([ "$update_success" = true ] && echo 0 || echo 1)
 }
 
+# show_help prints the help/usage message for the auto-update script, including available options, examples, configuration notes, supported package managers, and default log file.
 show_help() {
     cat << EOF
 Auto-Update System Automation
@@ -324,7 +338,7 @@ Log File:
 EOF
 }
 
-# --- Main Execution ---
+# main is the CLI entrypoint for the auto-update script; it parses options (‑h/--help, ‑t/--test, ‑v/--verbose, ‑c/--config FILE, ‑s/--security, ‑a/--all), configures dry-run and logging, sources an optional config file, invokes perform_auto_update with the chosen mode, logs the outcome, and exits with that command's exit code.
 main() {
     local security_only="${AUTOMATION_AUTO_UPDATE_SECURITY_ONLY:-$DEFAULT_SECURITY_ONLY}"
     local dry_run="no"

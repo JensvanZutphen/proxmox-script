@@ -182,6 +182,7 @@ ensure_whiptail() {
     }
 }
 
+# run_tui runs an interactive whiptail-based TUI (when enabled and running on a tty) to collect installer choices and populate global TUI_*, SELECT_*, and related configuration variables; returns immediately if TUI is disabled or the environment is non-interactive and sets TUI_USED=1 when the UI is shown.
 run_tui() {
     # Decide whether to run TUI
     if [ "$USE_TUI" = "no" ]; then
@@ -516,6 +517,7 @@ install_dependencies() {
     print_status "Dependencies installed successfully"
 }
 
+# install_configuration installs and provisions the application's configuration: it copies the main config into INSTALL_DIR, creates webhook secret and required directories with appropriate permissions, writes a proxmox-health.conf.local populated from TUI selections when TUI is used, and invokes install_automation_configuration if any automation features were enabled.
 install_configuration() {
     print_info "Installing configuration files..."
 
@@ -626,6 +628,7 @@ install_configuration() {
     print_status "Configuration files installed successfully"
 }
 
+# install_automation_configuration installs the automation configuration and scripts, applies any TUI-selected automation preferences to the installed automation.conf, and (when available) runs the automation's cron-generation script to create/install scheduled jobs.
 install_automation_configuration() {
     print_info "Installing automation configuration..."
 
@@ -684,6 +687,8 @@ install_automation_configuration() {
     print_status "Automation configuration installed successfully"
 }
 
+# install_automation_tui installs the Automation TUI components and a launcher script for managing automation features.
+# It creates the TUI directory under /usr/local/lib/proxmox-health, copies the packaged TUI framework scripts, writes an executable launcher at BIN_DIR/proxmox-automation-tui.sh, sets appropriate permissions, and (if present) installs an emergency-stop helper.
 install_automation_tui() {
     print_info "Installing automation TUI interface..."
 
@@ -740,6 +745,7 @@ EOF
     fi
 }
 
+# install_libraries copies shell library files from SCRIPT_DIR/lib into LIB_DIR, sets file permissions to 644, and exits with an error if the source library directory is missing.
 install_libraries() {
     print_info "Installing library files..."
 
@@ -1273,6 +1279,7 @@ test_installation() {
     print_status "Installation smoke tests completed"
 }
 
+# show_completion_message prints a post-installation summary listing installed files, configuration paths, example assets, suggested next steps, and useful commands.
 show_completion_message() {
     cat <<EOF
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1317,7 +1324,13 @@ Logs and timers are active—monitoring starts now. 🌐
 EOF
 }
 
-# --- Main Installation Process ---
+# main orchestrates the end-to-end installation and configuration of the Proxmox Health Monitoring System.
+# It performs prerequisite checks, parses CLI arguments, optionally runs the TUI, and supports a
+# "configure-only" mode that applies configuration and scheduling without re-installing other components.
+# The function backups any existing installation, installs selected components (dependencies, config,
+# libraries, binaries, cron, logrotate, systemd, examples, initial config, and optional automation TUI),
+# reconciles scheduler selection (systemd vs cron), runs smoke tests when core components were installed,
+# and prints a completion summary. It may exit early on fatal checks or after completing a configure-only run.
 main() {
     print_info "Starting Proxmox Health Monitoring System installation..."
     print_info "Version: $SCRIPT_VERSION"

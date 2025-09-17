@@ -28,25 +28,30 @@ source "/etc/proxmox-health/automation.conf"
 DEFAULT_RETENTION_DAYS=30
 DEFAULT_SNAPSHOT_PATTERN="@auto-[0-9]{4}-[0-9]{2}-[0-9]{2}"
 
-# --- Functions ---
+# log_info writes an INFO-level timestamped message to stderr.
 log_info() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $1" >&2
 }
 
+# log_warning writes a timestamped WARNING message to stderr using its first argument as the message.
 log_warning() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] $1" >&2
 }
 
+# log_error writes an ERROR-level timestamped message to stderr in the format "[YYYY-MM-DD HH:MM:SS] [ERROR] <message>".
 log_error() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $1" >&2
 }
 
+# log_debug emits a timestamped DEBUG message to stderr when AUTOMATION_LOG_LEVEL is set to DEBUG.
 log_debug() {
     if [ "${AUTOMATION_LOG_LEVEL:-INFO}" = "DEBUG" ]; then
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] [DEBUG] $1" >&2
     fi
 }
 
+# send_automation_notification sends a message via send_notification when notifications for the given level are enabled by configuration.
+# It accepts a message and an optional level (default "info"); info messages are sent only if AUTOMATION_NOTIFY_ON_SUCCESS="yes", and error/critical messages are sent only if AUTOMATION_NOTIFY_ON_FAILURE is "warning" or "critical".
 send_automation_notification() {
     local message="$1"
     local level="${2:-info}"
@@ -65,6 +70,7 @@ send_automation_notification() {
     send_notification "$message" "$level" "automation"
 }
 
+# check_dependencies checks that the zfs CLI is available; logs an error and returns 1 if not found, otherwise returns 0.
 check_dependencies() {
     if ! command -v zfs >/dev/null 2>&1; then
         log_error "ZFS command not found. Please install ZFS utilities."
@@ -73,6 +79,7 @@ check_dependencies() {
     return 0
 }
 
+# find_old_snapshots lists ZFS snapshots matching the auto pattern that are older than the given retention (in days) by printing each matching snapshot's full name to stdout.
 find_old_snapshots() {
     local retention_days="$1"
     local snapshot_pattern="${2:-$DEFAULT_SNAPSHOT_PATTERN}"
@@ -97,6 +104,8 @@ find_old_snapshots() {
     done
 }
 
+# remove_snapshot removes the specified ZFS snapshot using `zfs destroy`; in dry-run mode it only logs the intended removal. Returns 0 on success and 1 if the destroy operation fails.
+# `snapshot` must be the full ZFS snapshot name (e.g. pool/fs@auto-YYYY-MM-DD). If `dry_run` is set to "yes", the function will not perform deletion.
 remove_snapshot() {
     local snapshot="$1"
     local dry_run="$2"
@@ -116,6 +125,12 @@ remove_snapshot() {
     fi
 }
 
+# cleanup_snapshots performs ZFS snapshot cleanup by finding snapshots older than the given retention period and removing them (supports dry-run).
+# 
+# It sends start and completion notifications, logs progress, and checks that ZFS utilities are available before proceeding.
+# retention_days: retention window in days (snapshots older than this are targeted).
+# dry_run: set to "yes" to simulate removals without destroying snapshots.
+# Returns the number of failed removals as the function exit code (0 if all removals succeeded).
 cleanup_snapshots() {
     local retention_days="$1"
     local dry_run="$2"
@@ -171,6 +186,7 @@ cleanup_snapshots() {
     return $failed_count
 }
 
+# show_help prints usage, options, examples, and configuration notes for the ZFS snapshot cleanup script.
 show_help() {
     cat << EOF
 ZFS Snapshot Cleanup Automation
@@ -198,7 +214,8 @@ Configuration:
 EOF
 }
 
-# --- Main Execution ---
+# main parses command-line options, determines the retention window and runtime modes (dry-run, verbose, config file), invokes cleanup_snapshots with those settings, and exits with the cleanup's return code.
+# Accepts -h|--help, -t|--test (dry run), -v|--verbose (enable DEBUG logging), -c|--config FILE (source config), and an optional numeric retention-days argument; validates retention is a positive integer and exits 1 on invalid input.
 main() {
     local retention_days="${1:-${AUTOMATION_ZFS_CLEANUP_RETENTION:-$DEFAULT_RETENTION_DAYS}}"
     local dry_run="no"

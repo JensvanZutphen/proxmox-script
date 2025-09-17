@@ -6,8 +6,10 @@ set -euo pipefail
 CRON_FILE="/etc/cron.d/proxmox-automation"
 CONFIG_FILE="/etc/proxmox-health/automation.conf"
 
+# log writes messages to stderr prefixed with `[emergency-stop]`.
 log() { echo "[emergency-stop] $*" >&2; }
 
+# confirm prompts "Disable all automation now? [y/N]" and returns 0 if the user answers yes (case-insensitive, accepts "y" or "yes"); treats any other response or EOF as no and returns 1.
 confirm() {
     read -r -p "Disable all automation now? [y/N] " ans || ans="n"
     case "$ans" in
@@ -16,6 +18,7 @@ confirm() {
     esac
 }
 
+# main performs an emergency stop of all Proxmox automation: optionally confirms unless invoked with `--yes`, removes the cron job file, attempts to reload cron, and disables automation flags in the configuration file.
 main() {
     if [ "${1:-}" != "--yes" ]; then
         if ! confirm; then log "Aborted"; exit 1; fi

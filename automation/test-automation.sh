@@ -12,6 +12,7 @@ ensure_config_defaults
 PASS=0
 FAIL=0
 
+# run_case runs a test case: the first argument is the case name and remaining arguments form the command to execute; it prints status to stderr and increments the global PASS or FAIL counter.
 run_case() {
     local name="$1"; shift
     echo "[CASE] $name" >&2
