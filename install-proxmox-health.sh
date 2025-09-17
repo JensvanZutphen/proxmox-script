@@ -283,7 +283,9 @@ run_tui() {
         if summary_input=$(whiptail --title "Daily Summary Time" \
             --inputbox "When should the daily summary run? (HH:MM, 24-hour)" 10 78 "$TUI_SUMMARY_TIME" 3>&1 1>&2 2>&3); then
             if is_valid_time_24h "$summary_input"; then
-                TUI_SUMMARY_TIME=$(printf '%02d:%02d' "${summary_input%:*}" "${summary_input#*:}")
+                local summary_hour_dec=$((10#${summary_input%:*}))
+                local summary_min_dec=$((10#${summary_input#*:}))
+                TUI_SUMMARY_TIME=$(printf '%02d:%02d' "$summary_hour_dec" "$summary_min_dec")
                 break
             fi
             whiptail --title "Invalid Time" --msgbox "Enter time as HH:MM using 24-hour format." 10 78
