@@ -18,7 +18,8 @@ done
 
 # --- Configuration ---
 DEFAULT_SECURITY_ONLY="yes"
-DEFAULT_EXCLUDE_PACKAGES=("kernel*" "proxmox*" "pve-*")
+# Note: DEFAULT_EXCLUDE_PACKAGES is currently unused - remove or implement package exclusion
+# DEFAULT_EXCLUDE_PACKAGES=("kernel*" "proxmox*" "pve-*")
 DEFAULT_LOG_FILE="/var/log/proxmox-health/auto-update.log"
 
 # Set noninteractive frontend to prevent prompts during unattended runs
@@ -100,7 +101,7 @@ update_package_lists() {
 
     case "$package_manager" in
         apt)
-            apt-get update >/dev/null 2>&1
+            apt-get -o Acquire::Retries=3 update >/dev/null 2>&1
             ;;
         *)
             log_error "Unsupported package manager: $package_manager"
@@ -122,9 +123,10 @@ list_available_updates() {
     case "$package_manager" in
         apt)
             if [ "$security_only" = "yes" ]; then
-                apt-get -s upgrade | awk 'BEGIN{IGNORECASE=1} /^Inst/ && /security/ {c++} END{print c+0}'
+                # Use dist-upgrade for consistent simulation with actual upgrade command
+                apt-get -s dist-upgrade | awk 'BEGIN{IGNORECASE=1} /^Inst/ && /security/ {c++} END{print c+0}'
             else
-                apt-get -s upgrade | awk '/^Inst/ {c++} END{print c+0}'
+                apt-get -s dist-upgrade | awk '/^Inst/ {c++} END{print c+0}'
             fi
             ;;
         *)
@@ -162,7 +164,7 @@ perform_updates() {
                     update_output="No security updates available"; rc=0
                 fi
             else
-                update_output=$(apt-get full-upgrade -y -o APT::Get::Show-User-Simulation-Note=false -o Dpkg::Use-Pty=0 2>&1); rc=$?
+                update_output=$(apt-get dist-upgrade -y -o Dpkg::Use-Pty=0 2>&1); rc=$?
             fi
             ;;
         *)
@@ -339,6 +341,18 @@ main() {
                 if [ ! -r "$1" ]; then
                     log_error "Config file not found or not readable: $1"
                     exit 1
+                fi
+                if command -v stat >/dev/null 2>&1; then
+                  owner_uid=$(stat -c '%u' "$1" 2>/dev/null || echo '')
+                  perms=$(stat -c '%a' "$1" 2>/dev/null || echo '000')
+                  cur_uid=$(id -u)
+                  grp_digit=$(( (10#$perms / 10) % 10 ))
+                  oth_digit=$(( 10#$perms % 10 ))
+                  if { [ "$owner_uid" != "$cur_uid" ] && [ "$owner_uid" != "0" ]; } || \
+                     { [ $((grp_digit & 2)) -ne 0 ] || [ $((oth_digit & 2)) -ne 0 ]; }; then
+                    log_error "Unsafe config file permissions/owner: $1 (owner_uid=$owner_uid perms=$perms)"
+                    exit 1
+                  fi
                 fi
                 source "$1"
                 # Ensure log directory exists after potentially updating DEFAULT_LOG_FILE

@@ -54,7 +54,7 @@ send_automation_notification() {
         return 0
     fi
 
-    if [ "$level" = "error" ] || [ "$level" = "critical" ]; then
+    if [ "$level" = "error" ] || [ "$level" = "critical" ] || [ "$level" = "warning" ]; then
         case "${AUTOMATION_NOTIFY_ON_FAILURE:-none}" in
             critical|warning) ;;
             *) return 0 ;;
@@ -202,9 +202,14 @@ refresh_system() {
 
     log_info "Starting system cache refresh (age: $age_days days, dry run: $dry_run)"
 
-    # Capture disk usage before actions
+    # Capture disk usage before actions for all relevant filesystems
     local disk_before
     disk_before=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
+
+    # Also check disk usage for directories we'll clean
+    local var_usage_before tmp_usage_before
+    var_usage_before=$(df /var 2>/dev/null | awk 'NR==2 {print $5}' | sed 's/%//' || echo "$disk_before")
+    tmp_usage_before=$(df /tmp 2>/dev/null | awk 'NR==2 {print $5}' | sed 's/%//' || echo "$disk_before")
 
     # Send start notification
     local start_message="System cache refresh started"
@@ -242,16 +247,26 @@ refresh_system() {
     services_restarted=$(restart_services "$dry_run")
     total_services_restarted=$((total_services_restarted + services_restarted))
 
-    # Get disk space after
-    local disk_after
+    # Get disk space after for all relevant filesystems
+    local disk_after var_usage_after tmp_usage_after
     disk_after=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
+    var_usage_after=$(df /var 2>/dev/null | awk 'NR==2 {print $5}' | sed 's/%//' || echo "$disk_after")
+    tmp_usage_after=$(df /tmp 2>/dev/null | awk 'NR==2 {print $5}' | sed 's/%//' || echo "$disk_after")
 
     # Send completion notification
     local result_message="System cache refresh completed."
     result_message="$result_message Files cleaned: $total_files_cleaned"
     result_message="$result_message Size freed: ${total_size_freed}KB"
     result_message="$result_message Services restarted: $total_services_restarted"
-    result_message="$result_message Disk usage: ${disk_before}% → ${disk_after}%"
+    result_message="$result_message Disk usage: / ${disk_before}% → ${disk_after}%"
+
+    # Add separate filesystem usage if different from root
+    if [ "$var_usage_before" != "$disk_before" ] || [ "$var_usage_after" != "$disk_after" ]; then
+        result_message="$result_message, /var ${var_usage_before}% → ${var_usage_after}%"
+    fi
+    if [ "$tmp_usage_before" != "$disk_before" ] || [ "$tmp_usage_after" != "$disk_after" ]; then
+        result_message="$result_message, /tmp ${tmp_usage_before}% → ${tmp_usage_after}%"
+    fi
 
     if [ "$dry_run" = "yes" ]; then
         result_message="$result_message [DRY RUN]"
@@ -333,40 +348,40 @@ main() {
                     log_error "Missing argument for --config"
                     exit 1
                 fi
-                
+
                 # Security hardening checks for config file
                 if [ ! -f "$1" ]; then
                     log_error "Config file is not a regular file: $1"
                     exit 1
                 fi
-                
+
                 if [ ! -r "$1" ]; then
                     log_error "Config file not found or not readable: $1"
                     exit 1
                 fi
-                
+
                 # Check file ownership - must be owned by current user or root
                 local file_owner
                 file_owner=$(stat -c %u "$1" 2>/dev/null || echo "unknown")
                 local current_user
                 current_user=$(id -u)
-                
+
                 if [ "$file_owner" != "$current_user" ] && [ "$file_owner" != "0" ]; then
                     log_error "Config file must be owned by current user ($current_user) or root (0), but is owned by: $file_owner"
                     exit 1
                 fi
-                
+
                 # Check file permissions - must not be writable by group or others
                 local file_perms
                 file_perms=$(stat -c %a "$1" 2>/dev/null || echo "000")
-                local group_write_bit=$((file_perms % 100 / 10 % 2))
-                local other_write_bit=$((file_perms % 10 % 2))
-                
-                if [ "$group_write_bit" -eq 1 ] || [ "$other_write_bit" -eq 1 ]; then
+                local group_digit=$(( (file_perms % 100) / 10 ))
+                local other_digit=$(( file_perms % 10 ))
+
+                if [ $((group_digit & 2)) -ne 0 ] || [ $((other_digit & 2)) -ne 0 ]; then
                     log_error "Config file must not be writable by group or others (current permissions: $file_perms): $1"
                     exit 1
                 fi
-                
+
                 source "$1"
                 shift
                 ;;

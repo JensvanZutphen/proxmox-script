@@ -122,6 +122,11 @@ EOF
 EOF
 
     # Install cron file
+    if [ "${EUID:-$(id -u)}" -ne 0 ]; then
+        log_error "Root privileges required to install $CRON_FILE"
+        rm -f "$temp_file" || true
+        return 1
+    fi
     install -m 0644 -o root -g root "$temp_file" "$CRON_FILE"
     rm -f "$temp_file" || true
 
@@ -197,8 +202,8 @@ validate_cron_jobs() {
         if [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
             continue
         fi
-        # Guard: only process lines that start with 5 cron fields
-        if ! [[ "$line" =~ ^[0-9*/,-]+[[:space:]][0-9*/,-]+[[:space:]][0-9*/,-]+[[:space:]][0-9*/,-]+[[:space:]][0-9*/,-]+[[:space:]]+ ]]; then
+        # Guard: only process lines that start with 5 cron fields or @shortcuts
+        if ! [[ "$line" =~ ^([0-9*/,-]+[[:space:]]{1}){5}|^@(reboot|yearly|annually|monthly|weekly|daily|hourly)[[:space:]]+ ]]; then
             continue
         fi
 
@@ -211,14 +216,27 @@ validate_cron_jobs() {
             errors=$((errors + 1))
         fi
 
-        # Check if script exists and is executable
+        # Check if script exists and is executable (only for absolute paths or SCRIPT_INSTALL_DIR paths)
         local script_path
         script_path=$(echo "$line" | awk '{print $7}')
-        if [ -n "$script_path" ] && [ ! -x "$script_path" ]; then
-            if [ -f "$script_path" ]; then
-                log_warning "Script not executable: $script_path (line $line_number)"
-            else
-                log_warning "Script not found: $script_path (line $line_number)"
+        
+        # Remove surrounding quotes if present
+        script_path=${script_path#\"}
+        script_path=${script_path%\"}
+        script_path=${script_path#\'}
+        script_path=${script_path%\'}
+        
+        # Normalize SCRIPT_INSTALL_DIR for comparison (remove trailing slash)
+        local normalized_install_dir="${SCRIPT_INSTALL_DIR%/}"
+        
+        # Only validate paths that are absolute or start with SCRIPT_INSTALL_DIR
+        if [ -n "$script_path" ] && [[ "$script_path" == /* || "$script_path" == "$normalized_install_dir"* ]]; then
+            if [ ! -x "$script_path" ]; then
+                if [ -f "$script_path" ]; then
+                    log_warning "Script not executable: $script_path (line $line_number)"
+                else
+                    log_warning "Script not found: $script_path (line $line_number)"
+                fi
             fi
         fi
 
@@ -302,6 +320,19 @@ main() {
                 if [ ! -r "$1" ]; then
                     log_error "Config file not found or not readable: $1"
                     exit 1
+                fi
+                # Ownership/perms: root or current user; not group/other writable
+                if command -v stat >/dev/null 2>&1; then
+                  owner_uid=$(stat -c '%u' "$1" 2>/dev/null || echo '')
+                  perms=$(stat -c '%a' "$1" 2>/dev/null || echo '000')
+                  cur_uid=$(id -u)
+                  grp_digit=$(( (10#$perms / 10) % 10 ))
+                  oth_digit=$(( 10#$perms % 10 ))
+                  if { [ "$owner_uid" != "$cur_uid" ] && [ "$owner_uid" != "0" ]; } || \
+                     { [ $((grp_digit & 2)) -ne 0 ] || [ $((oth_digit & 2)) -ne 0 ]; }; then
+                    log_error "Unsafe config file permissions/owner: $1 (owner_uid=$owner_uid perms=$perms)"
+                    exit 1
+                  fi
                 fi
                 source "$1"
                 shift
