@@ -1064,7 +1064,7 @@ SYSTEM_KERNEL=$(uname -r)
 SYSTEM_UPTIME="$(uptime -p)"
 
 # Detection timestamp
-CONFIG_GENERATED=$(date '+%Y-%m-%d %H:%M:%S')
+CONFIG_GENERATED="$(date '+%Y-%m-%d %H:%M:%S')"
 EOF
 
     chmod 644 "$INSTALL_DIR/proxmox-health.conf.local"

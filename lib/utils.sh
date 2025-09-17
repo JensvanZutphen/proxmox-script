@@ -122,9 +122,10 @@ validate_configuration() {
     )
 
     for threshold in "${numeric_thresholds[@]}"; do
-        if [ -n "${!threshold}" ]; then
-            if ! [[ "${!threshold}" =~ ^[0-9]+$ ]]; then
-                log_error "Invalid numeric value for $threshold: ${!threshold}"
+        local value="${!threshold-}"
+        if [ -n "$value" ]; then
+            if ! [[ "$value" =~ ^[0-9]+$ ]]; then
+                log_error "Invalid numeric value for $threshold: $value"
                 errors=$((errors + 1))
             fi
         fi
@@ -137,9 +138,10 @@ validate_configuration() {
     )
 
     for var in "${boolean_vars[@]}"; do
-        if [ -n "${!var}" ]; then
-            if [[ "${!var}" != "yes" && "${!var}" != "no" ]]; then
-                log_error "Invalid boolean value for $var: ${!var} (must be 'yes' or 'no')"
+        local value="${!var-}"
+        if [ -n "$value" ]; then
+            if [[ "$value" != "yes" && "$value" != "no" ]]; then
+                log_error "Invalid boolean value for $var: $value (must be 'yes' or 'no')"
                 errors=$((errors + 1))
             fi
         fi
