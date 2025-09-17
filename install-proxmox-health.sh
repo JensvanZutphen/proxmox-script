@@ -1119,7 +1119,7 @@ test_installation() {
 }
 
 show_completion_message() {
-    cat <<'EOM'
+    cat <<EOF
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  Proxmox Health Monitoring System v$SCRIPT_VERSION
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1157,7 +1157,7 @@ show_completion_message() {
 
 Logs and timers are active—monitoring starts now. 🌐
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-EOM
+EOF
 }
 
 # --- Main Installation Process ---
