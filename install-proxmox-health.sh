@@ -1061,7 +1061,7 @@ ROOT_DISK_SIZE=$(df -h / | awk 'NR==2 {print $2}')
 # System information
 SYSTEM_HOSTNAME=$(hostname)
 SYSTEM_KERNEL=$(uname -r)
-SYSTEM_UPTIME=$(uptime -p)
+SYSTEM_UPTIME="$(uptime -p)"
 
 # Detection timestamp
 CONFIG_GENERATED=$(date '+%Y-%m-%d %H:%M:%S')

@@ -66,7 +66,7 @@ You’ll be prompted before configuration/state directories are deleted.
 |-------------------------------------------------------|-------------|
 | `/usr/local/bin/proxmox-healthcheck.sh`               | Orchestrates all enabled checks with retry + cooldown handling. |
 | `/usr/local/bin/proxmox-notify.sh`                    | Sends ad-hoc notifications (`proxmox-notify.sh "message" "level"`). |
-| `/usr/local/bin/proxmox-health-summary.sh`            | Generates and dispatches the daily alert summary. |
+| `/usr/local/bin/proxmox-health-summary.sh`            | Generates and dispatches the daily summary digest. |
 | `/usr/local/bin/proxmox-maintenance.sh`               | CLI for maintenance mode (enable/disable/status). |
 | `/etc/systemd/system/proxmox-health.service(.timer)`  | Periodic health-check systemd units. |
 | `/etc/systemd/system/proxmox-health-summary.service(.timer)` | Daily summary systemd units. |
@@ -80,7 +80,7 @@ You’ll be prompted before configuration/state directories are deleted.
 
 ## ⚙️ Configuration Files
 - `config/proxmox-health.conf` → `/etc/proxmox-health/proxmox-health.conf`: upstream defaults.
-- `/etc/proxmox-health/proxmox-health.conf.local`: installer-generated overrides (safe to edit manually). Expect entries like:
+- `/etc/proxmox-health/proxmox-health.conf.local`: installer-generated overrides (editable safely). Expect entries like:
   - `HEALTH_CHECK_INTERVAL_MINUTES`
   - `PING_TEST_HOST`
   - `MONITORED_BRIDGES`
