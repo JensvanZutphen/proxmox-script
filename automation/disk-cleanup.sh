@@ -15,29 +15,25 @@ DEFAULT_THRESHOLD=95
 DEFAULT_MIN_FREE_SPACE_GB=5
 DEFAULT_CLEANUP_DIRS=("/tmp" "/var/tmp" "/var/log" "/var/cache/apt/archives")
 
-# log_info writes an informational, timestamped message to stderr; the first argument is the message.
+# --- Functions ---
 log_info() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $1" >&2
 }
 
-# log_warning writes a timestamped WARNING message to stderr using the first argument as the message.
 log_warning() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] $1" >&2
 }
 
-# log_error writes a timestamped error message to stderr; takes one argument (the message).
 log_error() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $1" >&2
 }
 
-# log_debug prints a timestamped debug message to stderr when AUTOMATION_LOG_LEVEL is set to "DEBUG".
 log_debug() {
     if [ "${AUTOMATION_LOG_LEVEL:-INFO}" = "DEBUG" ]; then
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] [DEBUG] $1" >&2
     fi
 }
 
-# send_automation_notification sends a notification via `send_notification` with the given message and level (default "info"), gating info messages by AUTOMATION_NOTIFY_ON_SUCCESS and error/critical messages by AUTOMATION_NOTIFY_ON_FAILURE, and tags the notification channel as "automation".
 send_automation_notification() {
     local message="$1"
     local level="${2:-info}"
@@ -56,20 +52,16 @@ send_automation_notification() {
     send_notification "$message" "$level" "automation"
 }
 
-# get_disk_usage prints the filesystem usage percentage for the given path (default "/") as an integer with the trailing '%' removed.
 get_disk_usage() {
     local path="${1:-/}"
     df "$path" | awk 'NR==2 {gsub("%","",$5); print $5}'
 }
 
-# get_disk_free_space returns the available disk space (in kilobytes) for the specified path (defaults to /).
 get_disk_free_space() {
     local path="${1:-/}"
     df "$path" | awk 'NR==2 {print $4}'
 }
 
-# clean_old_files removes files older than a specified number of days from a directory and echoes the number of files removed (or that would be removed).
-# If `dry_run` is "yes" no deletion is performed; instead the function counts and echoes matching files and logs a dry-run message.
 clean_old_files() {
     local dir="$1"
     local days="$2"
@@ -97,7 +89,6 @@ clean_old_files() {
     echo "$cleaned_count"
 }
 
-# clean_old_logs removes compressed/rotated log files under /var/log and echoes the number removed. When called with "yes" as the first argument it performs a dry run and echoes the count it would remove without deleting files.
 clean_old_logs() {
     local dry_run="$1"
     local cleaned_count=0
@@ -114,19 +105,14 @@ clean_old_logs() {
 
     # Remove compressed log files
     cleaned_count=$(find /var/log -name "*.gz" -delete 2>/dev/null | wc -l)
-    cleaned_count=$((cleaned_count + $(find /var/log -name "*.old" -delete 2>/dev/null | wc -l))
-    cleaned_count=$((cleaned_count + $(find /var/log -name "*.1" -delete 2>/dev/null | wc -l))
-    cleaned_count=$((cleaned_count + $(find /var/log -name "*.2" -delete 2>/dev/null | wc -l))
+    cleaned_count=$((cleaned_count + $(find /var/log -name "*.old" -delete 2>/dev/null | wc -l)))
+    cleaned_count=$((cleaned_count + $(find /var/log -name "*.1" -delete 2>/dev/null | wc -l)))
+    cleaned_count=$((cleaned_count + $(find /var/log -name "*.2" -delete 2>/dev/null | wc -l)))
 
     log_info "Cleaned $cleaned_count old log files"
     echo "$cleaned_count"
 }
 
-# clean_apt_cache cleans the APT package cache and echoes the approximate freed size in kilobytes.
-# When called with "yes" as the first argument (dry run) it only estimates the current size of
-# /var/cache/apt/archives and echoes that size (KB) without deleting anything. On systems without
-# apt-get available the function echoes "0". On a real run it invokes `apt-get clean`, parses the
-# command output for the reported freed size (KB) and echoes that value (or "0" if none found).
 clean_apt_cache() {
     local dry_run="$1"
     local cleaned_size=0
@@ -156,9 +142,6 @@ clean_apt_cache() {
     fi
 }
 
-# perform_emergency_cleanup checks root disk usage against a threshold and, if needed, performs (or simulates) emergency cleanup, then reports the results.
-# 
-# When usage is at or above the provided threshold or free space is below DEFAULT_MIN_FREE_SPACE_GB, this function notifies, runs cleanup actions (old files in DEFAULT_CLEANUP_DIRS with per-directory age policies, rotated/compressed logs, and APT cache), rechecks disk state, and sends a completion notification. The first argument is the threshold percentage (1–100); the second is a dry-run flag ("yes" to only simulate, otherwise perform deletions).
 perform_emergency_cleanup() {
     local threshold="$1"
     local dry_run="$2"
@@ -250,7 +233,6 @@ perform_emergency_cleanup() {
     return 0
 }
 
-# show_help displays the script usage, available CLI options and examples, and notes that THRESHOLD defaults to $DEFAULT_THRESHOLD and can be overridden via /etc/proxmox-health/automation.conf by setting AUTOMATION_DISK_CLEANUP_THRESHOLD.
 show_help() {
     cat << EOF
 Emergency Disk Cleanup Automation
@@ -278,7 +260,7 @@ Configuration:
 EOF
 }
 
-# main parses command-line options (help, test/dry-run, verbose, config, or numeric threshold), validates the threshold (1–100), configures logging and dry-run flags, invokes perform_emergency_cleanup, and exits with its return code.
+# --- Main Execution ---
 main() {
     local threshold="${1:-${AUTOMATION_DISK_CLEANUP_THRESHOLD:-$DEFAULT_THRESHOLD}}"
     local dry_run="no"
