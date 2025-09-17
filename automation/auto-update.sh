@@ -15,6 +15,9 @@ DEFAULT_SECURITY_ONLY="yes"
 DEFAULT_EXCLUDE_PACKAGES=("kernel*" "proxmox*" "pve-*")
 DEFAULT_LOG_FILE="/var/log/proxmox-health/auto-update.log"
 
+# Ensure log directory exists before any logging occurs
+mkdir -p "$(dirname "$DEFAULT_LOG_FILE")"
+
 # log_info logs an informational message with a timestamp to stderr and appends the same entry to $DEFAULT_LOG_FILE.
 log_info() {
     local message="$1"
@@ -147,7 +150,7 @@ list_available_updates() {
 }
 
 # perform_updates performs system package updates using the specified package manager; supports a security-only mode and a dry-run mode and returns 0 on success or 1 on failure.
-# When not in dry-run mode, it runs the appropriate package manager command for apt/yum/dnf, treats the presence of "error", "failed", or "exception" in the command output as a failure, and returns non-zero for unsupported package managers.
+# When not in dry-run mode, it runs the appropriate package manager command for apt/yum/dnf, checks the command's exit code to determine success, and returns non-zero for unsupported package managers.
 perform_updates() {
     local package_manager="$1"
     local security_only="$2"
@@ -167,22 +170,28 @@ perform_updates() {
         apt)
             if [ "$security_only" = "yes" ]; then
                 update_output=$(apt-get upgrade -y --with-new-pkgs -o APT::Get::Show-User-Simulation-Note=false -o Dpkg::Use-Pty=0 2>&1)
+                rc=$?
             else
                 update_output=$(apt-get full-upgrade -y -o APT::Get::Show-User-Simulation-Note=false -o Dpkg::Use-Pty=0 2>&1)
+                rc=$?
             fi
             ;;
         yum)
             if [ "$security_only" = "yes" ]; then
                 update_output=$(yum -y update --security 2>&1)
+                rc=$?
             else
                 update_output=$(yum -y update 2>&1)
+                rc=$?
             fi
             ;;
         dnf)
             if [ "$security_only" = "yes" ]; then
                 update_output=$(dnf -y update --security 2>&1)
+                rc=$?
             else
                 update_output=$(dnf -y update 2>&1)
+                rc=$?
             fi
             ;;
         *)
@@ -191,17 +200,16 @@ perform_updates() {
             ;;
     esac
 
-    # Check if updates were successful
-    if echo "$update_output" | grep -q -i "error\|failed\|exception"; then
-        log_error "Update process encountered errors"
+    # Check if updates were successful based on exit code
+    if [ "$rc" -ne 0 ]; then
+        log_error "Update process encountered errors (exit code: $rc)"
         log_debug "Update output: $update_output"
-        update_success=false
+        return $rc
     else
         log_info "Updates completed successfully"
         log_debug "Update output: $update_output"
+        return 0
     fi
-
-    return $([ "$update_success" = true ] && echo 0 || echo 1)
 }
 
 # cleanup_package_cache removes package manager caches for the given package manager (`apt`, `yum`, or `dnf`); does nothing for unknown managers.
@@ -231,9 +239,6 @@ perform_auto_update() {
     local dry_run="$2"
 
     log_info "Starting auto-update system (security only: $security_only, dry run: $dry_run)"
-
-    # Create log directory if it doesn't exist
-    mkdir -p "$(dirname "$DEFAULT_LOG_FILE")"
 
     # Send start notification
     local start_message="Auto-update system started (security only: $security_only)"

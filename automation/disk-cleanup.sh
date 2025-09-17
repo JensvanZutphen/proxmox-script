@@ -6,9 +6,30 @@ set -euo pipefail
 
 # Source utilities and configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/../lib/utils.sh"
-source "$SCRIPT_DIR/../lib/notifications.sh"
-source "/etc/proxmox-health/automation.conf"
+UTILS_FILE="$SCRIPT_DIR/../lib/utils.sh"
+NOTIFICATIONS_FILE="$SCRIPT_DIR/../lib/notifications.sh"
+CONFIG_FILE="/etc/proxmox-health/automation.conf"
+
+if [ -r "$UTILS_FILE" ]; then
+    source "$UTILS_FILE"
+else
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] Required file $UTILS_FILE not found or not readable." >&2
+    exit 1
+fi
+
+if [ -r "$NOTIFICATIONS_FILE" ]; then
+    source "$NOTIFICATIONS_FILE"
+else
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] Required file $NOTIFICATIONS_FILE not found or not readable." >&2
+    exit 1
+fi
+
+if [ -r "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+else
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] Required file $CONFIG_FILE not found or not readable." >&2
+    exit 1
+fi
 
 # --- Configuration ---
 DEFAULT_THRESHOLD=95
@@ -280,7 +301,7 @@ EOF
 
 # main parses command-line options (help, test/dry-run, verbose, config, or numeric threshold), validates the threshold (1–100), configures logging and dry-run flags, invokes perform_emergency_cleanup, and exits with its return code.
 main() {
-    local threshold="${1:-${AUTOMATION_DISK_CLEANUP_THRESHOLD:-$DEFAULT_THRESHOLD}}"
+    local threshold="${AUTOMATION_DISK_CLEANUP_THRESHOLD:-$DEFAULT_THRESHOLD}"
     local dry_run="no"
     local verbose="no"
 

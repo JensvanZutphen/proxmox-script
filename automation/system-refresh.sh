@@ -6,9 +6,27 @@ set -euo pipefail
 
 # Source utilities and configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/../lib/utils.sh"
-source "$SCRIPT_DIR/../lib/notifications.sh"
-source "/etc/proxmox-health/automation.conf"
+UTILS_FILE="$SCRIPT_DIR/../lib/utils.sh"
+NOTIFICATIONS_FILE="$SCRIPT_DIR/../lib/notifications.sh"
+CONFIG_FILE="/etc/proxmox-health/automation.conf"
+
+if [ -r "$UTILS_FILE" ]; then
+    source "$UTILS_FILE"
+else
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] Optional utils file not found or not readable: $UTILS_FILE" >&2
+fi
+
+if [ -r "$NOTIFICATIONS_FILE" ]; then
+    source "$NOTIFICATIONS_FILE"
+else
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] Optional notifications file not found or not readable: $NOTIFICATIONS_FILE" >&2
+fi
+
+if [ -r "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+else
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] Optional config file not found or not readable: $CONFIG_FILE" >&2
+fi
 
 # --- Configuration ---
 DEFAULT_CLEANUP_AGE=7
@@ -85,7 +103,7 @@ clean_temp_files() {
             log_info "[DRY RUN] Would remove $count files from $dir (older than $age_days days)"
             cleaned_count="$count"
         else
-            cleaned_count=$(find "$dir" -type f -mtime +"$age_days" -delete 2>/dev/null | wc -l)
+            cleaned_count=$(find "$dir" -type f -mtime +"$age_days" -print -delete 2>/dev/null | wc -l)
             log_info "Cleaned $cleaned_count files from $dir (older than $age_days days)"
         fi
 
@@ -299,7 +317,7 @@ EOF
 # supports flags: -h|--help (show help), -t|--test (dry-run), -v|--verbose (enable DEBUG logging),
 # -c|--config FILE (source alternate config). Exits non‑zero for invalid options or invalid age.
 main() {
-    local age_days="${1:-${AUTOMATION_SYSTEM_REFRESH_AGE:-$DEFAULT_CLEANUP_AGE}}"
+    local age_days="${AUTOMATION_SYSTEM_REFRESH_AGE:-$DEFAULT_CLEANUP_AGE}"
     local dry_run="no"
     local verbose="no"
 

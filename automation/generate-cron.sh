@@ -68,6 +68,8 @@ EOF
     # Add environment variables for automation scripts
     cat >> "$temp_file" << 'EOF'
 # Environment variables for automation scripts
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 AUTOMATION_LOG_LEVEL=INFO
 CONFIG_DIR=/etc/proxmox-health
 STATE_DIR=/var/tmp/proxmox-health
@@ -82,16 +84,16 @@ EOF
         local script_name="$3"
         local script_args="$4"
 
-        if [ "${!enabled_var}" = "yes" ]; then
-            local schedule="${!schedule_var}"
+        if [ "${!enabled_var:-no}" = "yes" ]; then
+            local schedule="${!schedule_var:-}"
 
-            if validate_cron_schedule "$schedule"; then
+            if [ -n "$schedule" ] && validate_cron_schedule "$schedule"; then
                 echo "# $script_name" >> "$temp_file"
                 echo "$schedule root $SCRIPT_INSTALL_DIR/$script_name $script_args" >> "$temp_file"
                 echo "" >> "$temp_file"
                 log_info "Added cron job for $script_name: $schedule"
             else
-                log_warning "Invalid cron schedule for $script_name: $schedule"
+                log_warning "Invalid or empty cron schedule for $script_name: $schedule"
             fi
         else
             log_debug "Skipping disabled cron job for $script_name"

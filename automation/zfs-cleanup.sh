@@ -55,14 +55,16 @@ log_debug() {
 send_automation_notification() {
     local message="$1"
     local level="${2:-info}"
+    local notify_success="${AUTOMATION_NOTIFY_ON_SUCCESS:-no}"
+    local notify_failure="${AUTOMATION_NOTIFY_ON_FAILURE:-no}"
 
     # Check if notifications are enabled for this level
-    if [ "$level" = "info" ] && [ "$AUTOMATION_NOTIFY_ON_SUCCESS" != "yes" ]; then
+    if [ "$level" = "info" ] && [ "$notify_success" != "yes" ]; then
         return 0
     fi
 
     if [ "$level" = "error" ] || [ "$level" = "critical" ]; then
-        if [ "$AUTOMATION_NOTIFY_ON_FAILURE" != "critical" ] && [ "$AUTOMATION_NOTIFY_ON_FAILURE" != "warning" ]; then
+        if [ "$notify_failure" != "critical" ] && [ "$notify_failure" != "warning" ]; then
             return 0
         fi
     fi
@@ -84,7 +86,7 @@ find_old_snapshots() {
     local retention_days="$1"
     local snapshot_pattern="${2:-$DEFAULT_SNAPSHOT_PATTERN}"
 
-    log_debug "Searching for snapshots older than $retention days with pattern: $snapshot_pattern"
+    log_debug "Searching for snapshots older than $retention_days days with pattern: $snapshot_pattern"
 
     # Find all snapshots that match the auto pattern
     zfs list -t snapshot -o name -H | grep -E "$snapshot_pattern" | while read -r snapshot; do

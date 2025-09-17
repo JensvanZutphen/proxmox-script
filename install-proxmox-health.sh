@@ -673,7 +673,7 @@ install_automation_configuration() {
     fi
 
     # Generate and install cron jobs for automation
-    if command -v "$AUTOMATION_DIR/generate-cron.sh" >/dev/null 2>&1; then
+    if [ -f "$AUTOMATION_DIR/generate-cron.sh" ] && [ -x "$AUTOMATION_DIR/generate-cron.sh" ]; then
         "$AUTOMATION_DIR/generate-cron.sh" --generate
         print_status "Automation cron jobs generated and installed"
         # Inform about cron file location to surface variable usage
@@ -681,7 +681,7 @@ install_automation_configuration() {
             print_status "Automation cron file: $AUTOMATION_CRON_FILE"
         fi
     else
-        print_warning "Automation cron generation script not found"
+        print_warning "Automation cron generation script not found or not executable"
     fi
 
     print_status "Automation configuration installed successfully"
