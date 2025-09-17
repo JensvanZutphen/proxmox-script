@@ -7,7 +7,7 @@ set -e
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TUI_DIR="$SCRIPT_DIR/tui"
+TUI_DIR="$SCRIPT_DIR"
 CONFIG_DIR="/etc/proxmox-health"
 LIB_DIR="/usr/local/lib/proxmox-health"
 
