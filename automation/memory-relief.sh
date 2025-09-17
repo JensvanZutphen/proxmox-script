@@ -15,25 +15,29 @@ DEFAULT_THRESHOLD=90
 DEFAULT_CHECK_INTERVAL=5
 DEFAULT_CACHE_LEVEL=3  # 1 = pagecache, 2 = dentries and inodes, 3 = pagecache, dentries and inodes
 
-# --- Functions ---
+# log_info writes a timestamped "[INFO]" message to standard error.
 log_info() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $1" >&2
 }
 
+# log_warning outputs a timestamped [WARNING] message to stderr using the provided text.
 log_warning() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] $1" >&2
 }
 
+# log_error logs an error-level message with a timestamp to stderr.
 log_error() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $1" >&2
 }
 
+# log_debug writes a timestamped DEBUG-level message to stderr when AUTOMATION_LOG_LEVEL is set to "DEBUG".
 log_debug() {
     if [ "${AUTOMATION_LOG_LEVEL:-INFO}" = "DEBUG" ]; then
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] [DEBUG] $1" >&2
     fi
 }
 
+# send_automation_notification sends a message via `send_notification` on the "automation" channel, honoring `AUTOMATION_NOTIFY_ON_SUCCESS` for `info` messages and `AUTOMATION_NOTIFY_ON_FAILURE` for failure levels (`error`/`critical`) to decide whether to emit the notification.
 send_automation_notification() {
     local message="$1"
     local level="${2:-info}"
@@ -52,16 +56,19 @@ send_automation_notification() {
     send_notification "$message" "$level" "automation"
 }
 
+# get_memory_usage returns the current memory usage as an integer percentage printed to stdout. It parses `free` output and rounds the used/total ratio to the nearest whole percent.
 get_memory_usage() {
     # Get memory usage percentage
     free | awk '/Mem:/ {printf "%.0f", $3/$2*100}'
 }
 
+# get_memory_info outputs human-readable memory and swap usage to stdout using `free -h`.
 get_memory_info() {
     # Get detailed memory information
     free -h
 }
 
+# get_swap_usage prints the current swap usage as an integer percentage (prints `0` if no swap is configured).
 get_swap_usage() {
     # Get swap usage percentage
     free | awk '/Swap:/ {
@@ -70,6 +77,7 @@ get_swap_usage() {
     }'
 }
 
+# drop_caches drops kernel pagecache/dentry/inode caches by writing the given cache_level to /proc/sys/vm/drop_caches (cache_level: 1=pagecache, 2=dentries+inodes, 3=all); if dry_run is "yes" it only simulates the action.
 drop_caches() {
     local cache_level="$1"
     local dry_run="$2"
@@ -100,6 +108,7 @@ drop_caches() {
     fi
 }
 
+# check_memory_pressure checks whether current memory usage is at or above the given threshold percent; returns 0 if memory pressure is detected (usage >= threshold) and 1 otherwise.
 check_memory_pressure() {
     local threshold="$1"
     local current_usage
@@ -116,6 +125,7 @@ check_memory_pressure() {
     fi
 }
 
+# perform_memory_relief performs a memory-pressure check and, if usage is at or above the given threshold, attempts to drop caches (unless dry-run), then sends notifications reporting before/after memory and swap usage and whether the operation improved memory.
 perform_memory_relief() {
     local threshold="$1"
     local dry_run="$2"
@@ -183,6 +193,7 @@ perform_memory_relief() {
     return 0
 }
 
+# monitor_memory_pressure checks current memory usage against THRESHOLD and, if pressure is detected, invokes perform_memory_relief (with optional dry-run), logging actions and returning 0.
 monitor_memory_pressure() {
     local threshold="$1"
     local interval="$2"
@@ -200,6 +211,7 @@ monitor_memory_pressure() {
     return 0
 }
 
+# show_help displays usage information, available options, examples, configuration file notes, and cache level meanings for the memory-relief automation script.
 show_help() {
     cat << EOF
 Memory Pressure Relief Automation
@@ -233,7 +245,8 @@ Cache Levels:
 EOF
 }
 
-# --- Main Execution ---
+# main is the entrypoint for the memory-relief automation; it parses command-line options, validates configuration, sets logging/verbose modes, optionally displays current memory info, invokes monitor_memory_pressure, and exits with that command's exit code.
+# It recognizes -h/--help, -t/--test (dry run), -v/--verbose, -c/--config FILE, -i/--interval SECONDS, and an optional numeric THRESHOLD (1-100).
 main() {
     local threshold="${1:-${AUTOMATION_MEMORY_RELIEF_THRESHOLD:-$DEFAULT_THRESHOLD}}"
     local dry_run="no"

@@ -13,25 +13,31 @@ source "/etc/proxmox-health/automation.conf"
 CRON_FILE="/etc/cron.d/proxmox-automation"
 SCRIPT_INSTALL_DIR="/usr/local/lib/proxmox-health/automation"
 
-# --- Functions ---
+# log_info writes an informational message prefixed with an ISO-like timestamp and "[INFO]" tag to stderr.
 log_info() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $1" >&2
 }
 
+# log_warning outputs a timestamped warning message to stderr (accepts the message as its first argument).
 log_warning() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] $1" >&2
 }
 
+# log_error writes a timestamped error message to stderr in the format "[YYYY-MM-DD HH:MM:SS] [ERROR] <message>".
 log_error() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $1" >&2
 }
 
+# log_debug writes a timestamped debug message to stderr when AUTOMATION_LOG_LEVEL is set to "DEBUG".
 log_debug() {
     if [ "${AUTOMATION_LOG_LEVEL:-INFO}" = "DEBUG" ]; then
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] [DEBUG] $1" >&2
     fi
 }
 
+# validate_cron_schedule validates a cron schedule string consisting of five space-separated fields.
+# It returns 0 when the schedule appears valid and 1 otherwise. Accepts numeric values, ranges, lists,
+# wildcards (`*`), step values (`/`), and commas as supported cron field constructs.
 validate_cron_schedule() {
     local schedule="$1"
 
@@ -43,6 +49,7 @@ validate_cron_schedule() {
     fi
 }
 
+# generate_cron_jobs generates the /etc/cron.d/proxmox-automation file from the loaded automation configuration, validating schedules, adding enabled job entries and environment variables, installs the file to /etc/cron.d/proxmox-automation and sets permissions to 644.
 generate_cron_jobs() {
     log_info "Generating automation cron jobs"
 
@@ -113,6 +120,7 @@ EOF
     log_info "Automation cron jobs generated and installed to $CRON_FILE"
 }
 
+# remove_cron_jobs removes the generated automation cron file at $CRON_FILE if present and logs the outcome.
 remove_cron_jobs() {
     log_info "Removing automation cron jobs"
 
@@ -124,6 +132,7 @@ remove_cron_jobs() {
     fi
 }
 
+# reload_cron_service reloads the system cron daemon (tries `cron` then `crond`) via systemctl if active; logs a warning if no active cron service can be determined.
 reload_cron_service() {
     log_info "Reloading cron service"
 
@@ -138,6 +147,7 @@ reload_cron_service() {
     fi
 }
 
+# show_cron_jobs prints the generated automation cron file ($CRON_FILE, typically /etc/cron.d/proxmox-automation) to stdout if it exists; otherwise prints a message that no automation cron jobs are found.
 show_cron_jobs() {
     log_info "Current automation cron jobs:"
 
@@ -150,6 +160,9 @@ show_cron_jobs() {
     fi
 }
 
+# validate_cron_jobs validates the generated cron file at $CRON_FILE, checking each job's 5-field schedule and whether the referenced script exists.
+# If the cron file is absent it logs a warning and returns 0. If the file is unreadable or any schedules are invalid it logs errors and returns 1.
+# For each non-empty, non-comment line it extracts the first five fields and calls validate_cron_schedule; it also checks the 7th field for the script path and logs a warning if that script is missing.
 validate_cron_jobs() {
     local errors=0
 
@@ -200,6 +213,7 @@ validate_cron_jobs() {
     fi
 }
 
+# show_help displays usage information, available options, examples, and configuration notes for the automation cron management script.
 show_help() {
     cat << EOF
 Generate Automation Cron Jobs
@@ -227,7 +241,7 @@ Configuration:
 EOF
 }
 
-# --- Main Execution ---
+# main parses command-line options, dispatches the requested action (generate, remove, show, validate, reload) for managing automation cron jobs, and exits with an appropriate status.
 main() {
     local action="generate"
     local verbose="no"
