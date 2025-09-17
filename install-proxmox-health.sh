@@ -299,11 +299,25 @@ run_tui() {
     # Optional: webhook URL
     if whiptail --title "Notifications" --yesno "Do you want to configure a Discord webhook URL now?" 10 78; then
         local url
-        url=$(whiptail --title "Discord Webhook" --inputbox "Enter Discord webhook URL" 10 78 "" 3>&1 1>&2 2>&3) || true
-        if [ -n "${url:-}" ]; then
+        while true; do
+            url=$(whiptail --title "Discord Webhook" --inputbox "Enter Discord webhook URL" 10 78 "${TUI_WEBHOOK_URL:-}" 3>&1 1>&2 2>&3) || {
+                # user cancelled input; keep existing value
+                break
+            }
+
+            if [ -z "${url:-}" ]; then
+                # Blank input clears the stored URL
+                TUI_WEBHOOK_URL=""
+                break
+            fi
+
             TUI_WEBHOOK_URL="$url"
+
             if ! echo "$TUI_WEBHOOK_URL" | grep -Eq '^https://(discord|discordapp)\.com/api/webhooks/[0-9]+/[A-Za-z0-9_\-]+'; then
-                whiptail --title "Webhook Warning" --msgbox "The URL doesn't look like a Discord webhook. You can continue, but tests may fail." 10 78
+                whiptail --title "Webhook Warning" --yesno "The URL doesn't look like a Discord webhook. Keep it anyway?" 10 78 || {
+                    # try again
+                    continue
+                }
             else
                 if whiptail --title "Send Test" --yesno "Send a test message to the webhook now?" 10 78; then
                     if curl -s -H "Content-Type: application/json" -X POST -d "{\"content\":\"Proxmox Health: webhook test successful\"}" "$TUI_WEBHOOK_URL" >/dev/null 2>&1; then
@@ -313,7 +327,8 @@ run_tui() {
                     fi
                 fi
             fi
-        fi
+            break
+        done
     fi
 
     # Checklist: what should the cron job do (which checks to run)
@@ -1104,39 +1119,45 @@ test_installation() {
 }
 
 show_completion_message() {
-    cat << EOF
+    cat <<'EOM'
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ Proxmox Health Monitoring System v$SCRIPT_VERSION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-${GREEN}Installation completed successfully!${NC}
+✅ Installation completed successfully
 
-${BLUE}Configuration files:${NC}
-- Main config: $INSTALL_DIR/proxmox-health.conf
-- Webhook secret: $WEBHOOK_SECRET_FILE
-- Local overrides: $INSTALL_DIR/proxmox-health.conf.local
+⚙️ Configuration
+  • Main config:            $INSTALL_DIR/proxmox-health.conf
+  • Webhook secret:         $WEBHOOK_SECRET_FILE
+  • Local overrides:        $INSTALL_DIR/proxmox-health.conf.local
 
-${BLUE}Installed scripts:${NC}
-- Health check: $BIN_DIR/proxmox-healthcheck.sh
-- Notifications: $BIN_DIR/proxmox-notify.sh
-- Daily summary: $BIN_DIR/proxmox-health-summary.sh
-- Maintenance mode: $BIN_DIR/proxmox-maintenance.sh
+🧰 Installed Scripts
+  • $BIN_DIR/proxmox-healthcheck.sh
+  • $BIN_DIR/proxmox-notify.sh
+  • $BIN_DIR/proxmox-health-summary.sh
+  • $BIN_DIR/proxmox-maintenance.sh
 
-${BLUE}Example files:${NC}
-- Custom check: $INSTALL_DIR/custom-checks/example-custom-check.sh
-- Plugin: $INSTALL_DIR/plugins/example-plugin.sh
+📁 Example Assets
+  • Custom check: $INSTALL_DIR/custom-checks/example-custom-check.sh
+  • Plugin:       $INSTALL_DIR/plugins/example-plugin.sh
 
-${BLUE}Next steps:${NC}
-1. Edit $WEBHOOK_SECRET_FILE with your Discord webhook URL
-2. Review and adjust thresholds in $INSTALL_DIR/proxmox-health.conf
-3. Test notifications: $BIN_DIR/proxmox-notify.sh "Test message"
-4. Monitor logs: tail -f /var/log/proxmox-health/proxmox-health.log
+🚀 Suggested Next Steps
+  1. Review cluster-specific overrides in $INSTALL_DIR/proxmox-health.conf.local
+  2. Trigger a manual health check:
+       $BIN_DIR/proxmox-healthcheck.sh
+  3. Verify notifications in your Discord channel
+  4. Tail logs as needed:
+       tail -f /var/log/proxmox-health/proxmox-health.log
 
-${BLUE}Useful commands:${NC}
-- Check status: $BIN_DIR/proxmox-maintenance.sh status
-- Enable maintenance: $BIN_DIR/proxmox-maintenance.sh enable 2h "Reason"
-- Send test alert: $BIN_DIR/proxmox-notify.sh "Test message" "warning"
+🛠 Useful Commands
+  • Maintenance status:   $BIN_DIR/proxmox-maintenance.sh status
+  • Enable maintenance:   $BIN_DIR/proxmox-maintenance.sh enable 2h "Reason"
+  • Disable maintenance:  $BIN_DIR/proxmox-maintenance.sh disable
+  • Manual health check:  $BIN_DIR/proxmox-healthcheck.sh
 
-${GREEN}Proxmox Health Monitoring System v$SCRIPT_VERSION is now active!${NC}
-
-EOF
+Logs and timers are active—monitoring starts now. 🌐
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+EOM
 }
 
 # --- Main Installation Process ---
