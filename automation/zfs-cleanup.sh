@@ -126,7 +126,7 @@ remove_snapshot() {
 }
 
 # cleanup_snapshots performs ZFS snapshot cleanup by finding snapshots older than the given retention period and removing them (supports dry-run).
-# 
+#
 # It sends start and completion notifications, logs progress, and checks that ZFS utilities are available before proceeding.
 # retention_days: retention window in days (snapshots older than this are targeted).
 # dry_run: set to "yes" to simulate removals without destroying snapshots.

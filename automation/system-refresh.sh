@@ -38,7 +38,7 @@ log_debug() {
 }
 
 # send_automation_notification sends a notification with category "automation", honoring configured gating rules.
-# 
+#
 # The first argument is the message; the optional second argument is the level (default: "info").
 # Info-level notifications are sent only when AUTOMATION_NOTIFY_ON_SUCCESS="yes".
 # Error or critical notifications are sent only when AUTOMATION_NOTIFY_ON_FAILURE is "critical" or "warning".
@@ -188,7 +188,7 @@ restart_services() {
 }
 
 # refresh_system orchestrates a full system cache refresh: cleans temp files, package caches, journal logs, restarts configured services, and emits notifications and summary metrics.
-# 
+#
 # refresh_system takes two arguments: the number of days used as the age threshold for cleaning (age_days) and a dry-run flag ("yes" to simulate without making changes). It runs the cleanup steps in sequence, aggregates totals for files removed, size freed (KB), and services restarted, captures disk usage before/after, logs progress, and sends start/completion notifications (completion includes a "[DRY RUN]" tag when applicable). The function always returns 0.
 refresh_system() {
     local age_days="$1"
@@ -294,7 +294,7 @@ EOF
 }
 
 # main parses CLI args, validates input, configures logging/dry-run, and runs refresh_system.
-# 
+#
 # It accepts an optional numeric AGE_DAYS (or uses AUTOMATION_SYSTEM_REFRESH_AGE / DEFAULT_CLEANUP_AGE),
 # supports flags: -h|--help (show help), -t|--test (dry-run), -v|--verbose (enable DEBUG logging),
 # -c|--config FILE (source alternate config). Exits non‑zero for invalid options or invalid age.

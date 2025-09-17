@@ -157,7 +157,7 @@ clean_apt_cache() {
 }
 
 # perform_emergency_cleanup checks root disk usage against a threshold and, if needed, performs (or simulates) emergency cleanup, then reports the results.
-# 
+#
 # When usage is at or above the provided threshold or free space is below DEFAULT_MIN_FREE_SPACE_GB, this function notifies, runs cleanup actions (old files in DEFAULT_CLEANUP_DIRS with per-directory age policies, rotated/compressed logs, and APT cache), rechecks disk state, and sends a completion notification. The first argument is the threshold percentage (1–100); the second is a dry-run flag ("yes" to only simulate, otherwise perform deletions).
 perform_emergency_cleanup() {
     local threshold="$1"
