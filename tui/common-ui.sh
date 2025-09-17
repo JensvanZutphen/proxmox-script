@@ -261,8 +261,22 @@ EOF
         fi
     done
 
-    # Move temp file to final location
-    mv "$temp_file" "$config_file"
+    # Validate temp file before moving
+    if [ ! -f "$temp_file" ]; then
+        log_error "Temp file $temp_file does not exist or is not a regular file."
+        return 1
+    fi
+    if [ -L "$temp_file" ]; then
+        log_error "Temp file $temp_file is a symlink. Aborting for security."
+        return 1
+    fi
+    if [ "$(stat -c %U "$temp_file")" != "root" ]; then
+        log_error "Temp file $temp_file is not owned by root. Aborting for security."
+        return 1
+    fi
+    chmod 600 "$temp_file"
+    # Move temp file to final location atomically
+    mv -f "$temp_file" "$config_file"
     chmod 644 "$config_file"
 
     log_info "Automation configuration saved to $config_file"
