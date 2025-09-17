@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y shellcheck
+
+      - name: List shell scripts
+        id: list
+        run: |
+          echo "files=install-proxmox-health.sh lib/*.sh" >> $GITHUB_OUTPUT
+
+      - name: ShellCheck (bash, follow sources)
+        run: |
+          # Ignore expected patterns used in this project to keep scripts concise
+          # - SC1091: external config sourced at runtime
+          # - SC2155: declare+assign together is allowed in this codebase
+          # - SC2034: some arrays/loop vars are intentionally unused
+          # - SC2030,SC2031: addressed where relevant; remaining cases are safe
+          shellcheck -x -s bash -e SC1091,SC2155,SC2034,SC2030,SC2031 ${{ steps.list.outputs.files }}
+
+      - name: Bash syntax check
+        run: |
+          for f in ${{ steps.list.outputs.files }}; do
+            echo "Syntax check: $f"; bash -n "$f"; done
+
+  formatting:
+    name: Basic Formatting
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Trailing whitespace check
+        run: |
+          ! git grep -nI $'\t' -- ':!*.md' || (echo 'Tab characters found' && exit 1)
+          ! git grep -nI ' $' -- ':!*.md' || (echo 'Trailing spaces found' && exit 1)
