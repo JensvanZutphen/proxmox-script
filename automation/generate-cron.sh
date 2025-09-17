@@ -10,6 +10,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Safe sourcing with fallback logging
 for f in "$SCRIPT_DIR/../lib/utils.sh" "/etc/proxmox-health/automation.conf"; do
     if [ -r "$f" ]; then
+        # Validate system config file ownership/permissions before sourcing
+        if [ "$f" = "/etc/proxmox-health/automation.conf" ] && command -v stat >/dev/null 2>&1; then
+            owner_uid=$(stat -c '%u' "$f" 2>/dev/null || echo '')
+            perms=$(stat -c '%a' "$f" 2>/dev/null || echo '000')
+            grp_digit=$(( (10#$perms / 10) % 10 ))
+            oth_digit=$(( 10#$perms % 10 ))
+            if { [ "$owner_uid" != "0" ] && [ "$owner_uid" != "$(id -u)" ]; } || \
+               { [ $((grp_digit & 2)) -ne 0 ] || [ $((oth_digit & 2)) -ne 0 ]; }; then
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] Unsafe config file: $f (owner_uid=$owner_uid perms=$perms)" >&2
+                continue
+            fi
+        fi
         source "$f"
     else
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] Optional file not readable: $f" >&2
