@@ -157,7 +157,6 @@ perform_updates() {
 
     local update_output=""
     local update_success=true
-    local rc=0
 
     if [ "$dry_run" = "yes" ]; then
         log_info "[DRY RUN] Would perform system updates"
@@ -167,29 +166,23 @@ perform_updates() {
     case "$package_manager" in
         apt)
             if [ "$security_only" = "yes" ]; then
-                # Build list of security-updated packages and upgrade only those
-                mapfile -t _sec_pkgs < <(apt-get -s upgrade | awk '/^Inst/ && /Security/ {print $2}')
-                if [ "${#_sec_pkgs[@]}" -gt 0 ]; then
-                    update_output=$(apt-get install -y --only-upgrade "${_sec_pkgs[@]}" -o Dpkg::Use-Pty=0 2>&1); rc=$?
-                else
-                    update_output="No security updates available"; rc=0
-                fi
+                update_output=$(apt-get upgrade -y --with-new-pkgs -o APT::Get::Show-User-Simulation-Note=false -o Dpkg::Use-Pty=0 2>&1)
             else
-                update_output=$(apt-get full-upgrade -y -o APT::Get::Show-User-Simulation-Note=false -o Dpkg::Use-Pty=0 2>&1); rc=$?
+                update_output=$(apt-get full-upgrade -y -o APT::Get::Show-User-Simulation-Note=false -o Dpkg::Use-Pty=0 2>&1)
             fi
             ;;
         yum)
             if [ "$security_only" = "yes" ]; then
-                update_output=$(yum -y update --security 2>&1); rc=$?
+                update_output=$(yum -y update --security 2>&1)
             else
-                update_output=$(yum -y update 2>&1); rc=$?
+                update_output=$(yum -y update 2>&1)
             fi
             ;;
         dnf)
             if [ "$security_only" = "yes" ]; then
-                update_output=$(dnf -y update --security 2>&1); rc=$?
+                update_output=$(dnf -y update --security 2>&1)
             else
-                update_output=$(dnf -y update 2>&1); rc=$?
+                update_output=$(dnf -y update 2>&1)
             fi
             ;;
         *)

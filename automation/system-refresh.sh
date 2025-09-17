@@ -48,23 +48,17 @@ send_automation_notification() {
     local level="${2:-info}"
 
     # Check if notifications are enabled for this level
-    if [ "$level" = "info" ] && [ "${AUTOMATION_NOTIFY_ON_SUCCESS:-no}" != "yes" ]; then
+    if [ "$level" = "info" ] && [ "$AUTOMATION_NOTIFY_ON_SUCCESS" != "yes" ]; then
         return 0
     fi
 
     if [ "$level" = "error" ] || [ "$level" = "critical" ]; then
-        case "${AUTOMATION_NOTIFY_ON_FAILURE:-none}" in
-            critical|warning) ;;
-            *) return 0 ;;
-        esac
+        if [ "$AUTOMATION_NOTIFY_ON_FAILURE" != "critical" ] && [ "$AUTOMATION_NOTIFY_ON_FAILURE" != "warning" ]; then
+            return 0
+        fi
     fi
 
-    if ! type -t send_notification >/dev/null 2>&1; then
-        log_debug "Notifications unavailable (send_notification not found); skipping delivery"
-        return 0
-    fi
-
-    send_notification "$message" "$level" "automation" || log_warning "Notification delivery failed"
+    send_notification "$message" "$level" "automation"
 }
 
 # clean_temp_files removes files older than a given number of days from the directories listed in DEFAULT_CLEANUP_DIRS and echoes the total number of files cleaned.
@@ -115,14 +109,9 @@ clean_package_cache() {
             log_info "[DRY RUN] Would clean APT cache (approximately ${size}KB)"
             echo "$size"
         else
-            local before after freed
-            before=$(du -sk /var/cache/apt/archives 2>/dev/null | cut -f1); before=${before:-0}
-            apt-get clean >/dev/null 2>&1 || true
-            after=$(du -sk /var/cache/apt/archives 2>/dev/null | cut -f1); after=${after:-0}
-            freed=$(( before - after ))
-            [ "$freed" -lt 0 ] && freed=0
-            log_info "Cleaned APT cache: ${freed}KB freed"
-            echo "$freed"
+            cleaned_size=$(apt-get clean 2>&1 | grep -E "(freed|deleted)" | awk '{print $4}' | tr -d '.,' || echo "0")
+            log_info "Cleaned APT cache: ${cleaned_size:-0}KB"
+            echo "${cleaned_size:-0}"
         fi
     elif command -v yum >/dev/null 2>&1; then
         if [ "$dry_run" = "yes" ]; then
@@ -131,14 +120,9 @@ clean_package_cache() {
             log_info "[DRY RUN] Would clean YUM cache (approximately ${size}KB)"
             echo "$size"
         else
-            local before after freed
-            before=$(du -sk /var/cache/yum 2>/dev/null | cut -f1); before=${before:-0}
             yum clean all >/dev/null 2>&1 || true
-            after=$(du -sk /var/cache/yum 2>/dev/null | cut -f1); after=${after:-0}
-            freed=$(( before - after ))
-            [ "$freed" -lt 0 ] && freed=0
-            log_info "Cleaned YUM cache: ${freed}KB freed"
-            echo "$freed"
+            log_info "Cleaned YUM cache"
+            echo "1"
         fi
     else
         log_debug "No package manager found, skipping cache cleanup"
@@ -163,14 +147,10 @@ clean_journal_logs() {
             log_info "[DRY RUN] Would clean old journal logs (approximately ${size}KB)"
             echo "$size"
         else
-            local before after freed
-            before=$(du -sk /var/log/journal 2>/dev/null | cut -f1); before=${before:-0}
+            # Keep only last 7 days of journal logs
             journalctl --vacuum-time=7d >/dev/null 2>&1 || true
-            after=$(du -sk /var/log/journal 2>/dev/null | cut -f1);  after=${after:-0}
-            freed=$(( before - after ))
-            [ "$freed" -lt 0 ] && freed=0
-            log_info "Cleaned old journal logs: ${freed}KB freed"
-            echo "$freed"
+            log_info "Cleaned old journal logs"
+            echo "1"
         fi
     else
         log_debug "Journalctl not found, skipping journal cleanup"
@@ -221,10 +201,6 @@ refresh_system() {
     if [ "$dry_run" = "yes" ]; then
         start_message="$start_message [DRY RUN]"
     fi
-    # Capture disk usage before actions
-    local disk_before
-    disk_before=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
-
     send_automation_notification "$start_message" "info"
 
     # Initialize counters
@@ -256,7 +232,9 @@ refresh_system() {
     services_restarted=$(restart_services "$dry_run")
     total_services_restarted=$((total_services_restarted + services_restarted))
 
-    # Get disk space after actions
+    # Get disk space before and after
+    local disk_before
+    disk_before=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
     local disk_after
     disk_after=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
 

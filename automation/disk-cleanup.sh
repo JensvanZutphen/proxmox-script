@@ -91,12 +91,8 @@ clean_old_files() {
         return 0
     fi
 
-    # Count files to be deleted
-    cleaned_count=$(find "$dir" -type f -mtime +"$days" -print 2>/dev/null | wc -l)
-
-    # Remove the files
-    find "$dir" -type f -mtime +"$days" -delete 2>/dev/null
-
+    # Actually remove files
+    cleaned_count=$(find "$dir" -type f -mtime +"$days" -delete 2>/dev/null | wc -l)
     log_info "Cleaned $cleaned_count files from $dir (older than $days days)"
     echo "$cleaned_count"
 }
@@ -117,10 +113,10 @@ clean_old_logs() {
     fi
 
     # Remove compressed log files
-    cleaned_count=$(find /var/log -name "*.gz" -print -delete 2>/dev/null | wc -l)
-    cleaned_count=$((cleaned_count + $(find /var/log -name "*.old" -print -delete 2>/dev/null | wc -l))
-    cleaned_count=$((cleaned_count + $(find /var/log -name "*.1" -print -delete 2>/dev/null | wc -l))
-    cleaned_count=$((cleaned_count + $(find /var/log -name "*.2" -print -delete 2>/dev/null | wc -l))
+    cleaned_count=$(find /var/log -name "*.gz" -delete 2>/dev/null | wc -l)
+    cleaned_count=$((cleaned_count + $(find /var/log -name "*.old" -delete 2>/dev/null | wc -l))
+    cleaned_count=$((cleaned_count + $(find /var/log -name "*.1" -delete 2>/dev/null | wc -l))
+    cleaned_count=$((cleaned_count + $(find /var/log -name "*.2" -delete 2>/dev/null | wc -l))
 
     log_info "Cleaned $cleaned_count old log files"
     echo "$cleaned_count"
@@ -151,14 +147,9 @@ clean_apt_cache() {
     fi
 
     if command -v apt-get >/dev/null 2>&1; then
-        local before after
-        before=$(du -sk /var/cache/apt/archives 2>/dev/null | awk '{print $1}')
-        apt-get clean >/dev/null 2>&1 || true
-        after=$(du -sk /var/cache/apt/archives 2>/dev/null | awk '{print $1}')
-        cleaned_size=$(( before - after ))
-        [ "$cleaned_size" -lt 0 ] && cleaned_size=0
-        log_info "Cleaned APT cache: ${cleaned_size}KB"
-        echo "$cleaned_size"
+        cleaned_size=$(apt-get clean 2>&1 | grep -E "(freed|deleted)" | awk '{print $4}' | tr -d '.,' || echo "0")
+        log_info "Cleaned APT cache: ${cleaned_size:-0}KB"
+        echo "${cleaned_size:-0}"
     else
         log_debug "APT not available, skipping cache cleanup"
         echo "0"
