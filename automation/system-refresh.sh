@@ -131,6 +131,7 @@ clean_package_cache() {
         if [ "$dry_run" = "yes" ]; then
             local size
             size=$(du -sk /var/cache/apt/archives 2>/dev/null | cut -f1)
+            size=${size:-0}
             log_info "[DRY RUN] Would clean APT cache (approximately ${size}KB)"
             echo "$size"
         else
@@ -150,7 +151,8 @@ clean_package_cache() {
 }
 
 clean_journal_logs() {
-    local dry_run="$1"
+    local age_days="$1"
+    local dry_run="$2"
     local cleaned_size=0
 
     log_debug "Cleaning journal logs"
@@ -159,12 +161,13 @@ clean_journal_logs() {
         if [ "$dry_run" = "yes" ]; then
             local size
             size=$(du -sk /var/log/journal 2>/dev/null | cut -f1)
+            size=${size:-0}
             log_info "[DRY RUN] Would clean old journal logs (approximately ${size}KB)"
             echo "$size"
         else
             local before after freed
             before=$(du -sk /var/log/journal 2>/dev/null | cut -f1); before=${before:-0}
-            journalctl --vacuum-time=7d >/dev/null 2>&1 || true
+            journalctl --vacuum-time="${age_days}d" >/dev/null 2>&1 || true
             after=$(du -sk /var/log/journal 2>/dev/null | cut -f1);  after=${after:-0}
             freed=$(( before - after ))
             [ "$freed" -lt 0 ] && freed=0
@@ -246,7 +249,7 @@ refresh_system() {
     # Clean journal logs
     log_info "Cleaning journal logs..."
     local journal_cleaned
-    journal_cleaned=$(clean_journal_logs "$dry_run")
+    journal_cleaned=$(clean_journal_logs "$age_days" "$dry_run")
     total_size_freed=$((total_size_freed + journal_cleaned))
 
     # Restart services

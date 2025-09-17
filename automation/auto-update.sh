@@ -18,6 +18,9 @@ DEFAULT_LOG_FILE="/var/log/proxmox-health/auto-update.log"
 # Ensure log directory exists before any logging occurs
 mkdir -p "$(dirname "$DEFAULT_LOG_FILE")"
 
+# Set noninteractive frontend to prevent prompts during unattended runs
+export DEBIAN_FRONTEND=noninteractive
+
 # log_info logs an informational message with a timestamp to stderr and appends the same entry to $DEFAULT_LOG_FILE.
 log_info() {
     local message="$1"
@@ -63,7 +66,9 @@ send_automation_notification() {
         ;;
     esac
 
-    send_notification "$message" "$level" "automation"
+    if type -t send_notification >/dev/null 2>&1; then
+        send_notification "$message" "$level" "automation"
+    fi
 }
 
 # check_package_manager detects if apt package manager is available and echoes "apt" or "unknown".
@@ -114,7 +119,7 @@ list_available_updates() {
     case "$package_manager" in
         apt)
             if [ "$security_only" = "yes" ]; then
-                apt-get -s upgrade | grep -E "^Inst.*Security" | wc -l
+                apt-get -s upgrade | grep -Ei "^Inst.*security" | wc -l
             else
                 apt-get -s upgrade | grep -c "^Inst"
             fi
@@ -147,7 +152,7 @@ perform_updates() {
         apt)
             if [ "$security_only" = "yes" ]; then
                 # Build list of security-updated packages and upgrade only those
-                mapfile -t _sec_pkgs < <(apt-get -s upgrade | awk '/^Inst/ && /Security/ {print $2}')
+                mapfile -t _sec_pkgs < <(apt-get -s upgrade | awk 'BEGIN{IGNORECASE=1} /^Inst/ && /security/ {print $2}')
                 if [ "${#_sec_pkgs[@]}" -gt 0 ]; then
                     update_output=$(apt-get install -y --only-upgrade "${_sec_pkgs[@]}" -o Dpkg::Use-Pty=0 2>&1); rc=$?
                 else
@@ -324,6 +329,14 @@ main() {
                 ;;
             -c|--config)
                 shift
+                if [ -z "${1:-}" ]; then
+                    log_error "Missing argument for --config"
+                    exit 1
+                fi
+                if [ ! -r "$1" ]; then
+                    log_error "Config file not found or not readable: $1"
+                    exit 1
+                fi
                 source "$1"
                 shift
                 ;;

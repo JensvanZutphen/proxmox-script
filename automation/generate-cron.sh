@@ -115,9 +115,7 @@ EOF
 EOF
 
     # Install cron file
-    mv "$temp_file" "$CRON_FILE"
-
-    chmod 644 "$CRON_FILE"
+    install -m 0644 -o root -g root "$temp_file" "$CRON_FILE"
 
     log_info "Automation cron jobs generated and installed to $CRON_FILE"
 }
@@ -205,11 +203,15 @@ validate_cron_jobs() {
             errors=$((errors + 1))
         fi
 
-        # Check if script exists
+        # Check if script exists and is executable
         local script_path
         script_path=$(echo "$line" | awk '{print $7}')
-        if [ -n "$script_path" ] && [ ! -f "$script_path" ]; then
-            log_warning "Script not found: $script_path (line $line_number)"
+        if [ -n "$script_path" ] && [ ! -x "$script_path" ]; then
+            if [ -f "$script_path" ]; then
+                log_warning "Script not executable: $script_path (line $line_number)"
+            else
+                log_warning "Script not found: $script_path (line $line_number)"
+            fi
         fi
 
     done < "$CRON_FILE"
@@ -285,6 +287,14 @@ main() {
                 ;;
             -c|--config)
                 shift
+                if [ -z "${1:-}" ]; then
+                    log_error "Missing argument for --config"
+                    exit 1
+                fi
+                if [ ! -r "$1" ]; then
+                    log_error "Config file not found or not readable: $1"
+                    exit 1
+                fi
                 source "$1"
                 shift
                 ;;
