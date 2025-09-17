@@ -208,8 +208,10 @@ refresh_system() {
 
     # Also check disk usage for directories we'll clean
     local var_usage_before tmp_usage_before
-    var_usage_before=$(df /var 2>/dev/null | awk 'NR==2 {print $5}' | sed 's/%//' || echo "$disk_before")
-    tmp_usage_before=$(df /tmp 2>/dev/null | awk 'NR==2 {print $5}' | sed 's/%//' || echo "$disk_before")
+    var_usage_before=$(df /var 2>/dev/null | awk 'NR==2 {print $5}' | sed 's/%//')
+    var_usage_before=${var_usage_before:-$disk_before}
+    tmp_usage_before=$(df /tmp 2>/dev/null | awk 'NR==2 {print $5}' | sed 's/%//')
+    tmp_usage_before=${tmp_usage_before:-$disk_before}
 
     # Send start notification
     local start_message="System cache refresh started"
@@ -250,8 +252,10 @@ refresh_system() {
     # Get disk space after for all relevant filesystems
     local disk_after var_usage_after tmp_usage_after
     disk_after=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
-    var_usage_after=$(df /var 2>/dev/null | awk 'NR==2 {print $5}' | sed 's/%//' || echo "$disk_after")
-    tmp_usage_after=$(df /tmp 2>/dev/null | awk 'NR==2 {print $5}' | sed 's/%//' || echo "$disk_after")
+    var_usage_after=$(df /var 2>/dev/null | awk 'NR==2 {print $5}' | sed 's/%//')
+    var_usage_after=${var_usage_after:-$disk_after}
+    tmp_usage_after=$(df /tmp 2>/dev/null | awk 'NR==2 {print $5}' | sed 's/%//')
+    tmp_usage_after=${tmp_usage_after:-$disk_after}
 
     # Send completion notification
     local result_message="System cache refresh completed."
@@ -374,10 +378,9 @@ main() {
                 # Check file permissions - must not be writable by group or others
                 local file_perms
                 file_perms=$(stat -c %a "$1" 2>/dev/null || echo "000")
-                local group_digit=$(( (file_perms % 100) / 10 ))
-                local other_digit=$(( file_perms % 10 ))
-
-                if [ $((group_digit & 2)) -ne 0 ] || [ $((other_digit & 2)) -ne 0 ]; then
+                local grp_digit=$(( (10#$file_perms / 10) % 10 ))
+                local oth_digit=$(( 10#$file_perms % 10 ))
+                if [ $((grp_digit & 2)) -ne 0 ] || [ $((oth_digit & 2)) -ne 0 ]; then
                     log_error "Config file must not be writable by group or others (current permissions: $file_perms): $1"
                     exit 1
                 fi

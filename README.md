@@ -149,6 +149,35 @@ Add new tests under `tests/`, sourcing the framework for consistent reporting.
 
 ---
 
+## 🛠 Development
+
+### Code Formatting
+This project uses automated formatting checks to maintain code quality. If you encounter formatting-related CI failures:
+
+**Quick fix for all files:**
+```bash
+./scripts/fix-formatting.sh
+```
+
+**Auto-fix on commit (recommended):**
+```bash
+ln -sf ../../.github/pre-commit-hook.sh .git/hooks/pre-commit
+```
+
+**Manual fixes:**
+```bash
+# Fix tabs and trailing whitespace
+find . -name "*.sh" -exec sed -i -e 's/\t/    /g' -e 's/[[:space:]]*$//' {} +
+```
+
+### Running Tests
+```bash
+cd tests
+./run-tests.sh
+```
+
+---
+
 ## 📄 License
 Released under the [MIT License](LICENSE).
 

@@ -203,32 +203,38 @@ validate_cron_jobs() {
             continue
         fi
         # Guard: only process lines that start with 5 cron fields or @shortcuts
-        if ! [[ "$line" =~ ^([0-9*/,-]+[[:space:]]{1}){5}|^@(reboot|yearly|annually|monthly|weekly|daily|hourly)[[:space:]]+ ]]; then
+        if ! [[ "$line" =~ ^([0-9*/,-]+[[:space:]]+){5} || "$line" =~ ^@(reboot|yearly|annually|monthly|weekly|daily|hourly)[[:space:]]+ ]]; then
             continue
         fi
 
-        # Extract schedule part (first 5 fields)
-        local schedule
-        schedule=$(echo "$line" | awk '{print $1" "$2" "$3" "$4" "$5}')
-
-        if ! validate_cron_schedule "$schedule"; then
-            log_error "Invalid cron schedule at line $line_number: $schedule"
-            errors=$((errors + 1))
+        local schedule script_field
+        if [[ "$line" =~ ^@(reboot|yearly|annually|monthly|weekly|daily|hourly)[[:space:]]+ ]]; then
+            # @-shortcut form: "@reboot USER CMD..."; user=$2, command=$3
+            schedule="$(echo "$line" | awk '{print $1}')"
+            script_field=3
+        else
+            # Standard 5-field form: "m h dom mon dow USER CMD..."
+            schedule="$(echo "$line" | awk '{print $1" "$2" "$3" "$4" "$5}')"
+            script_field=7
+            if ! validate_cron_schedule "$schedule"; then
+                log_error "Invalid cron schedule at line $line_number: $schedule"
+                errors=$((errors + 1))
+            fi
         fi
 
         # Check if script exists and is executable (only for absolute paths or SCRIPT_INSTALL_DIR paths)
         local script_path
-        script_path=$(echo "$line" | awk '{print $7}')
-        
+        script_path=$(awk -v n="$script_field" '{print $n}' <<<"$line")
+
         # Remove surrounding quotes if present
         script_path=${script_path#\"}
         script_path=${script_path%\"}
         script_path=${script_path#\'}
         script_path=${script_path%\'}
-        
+
         # Normalize SCRIPT_INSTALL_DIR for comparison (remove trailing slash)
         local normalized_install_dir="${SCRIPT_INSTALL_DIR%/}"
-        
+
         # Only validate paths that are absolute or start with SCRIPT_INSTALL_DIR
         if [ -n "$script_path" ] && [[ "$script_path" == /* || "$script_path" == "$normalized_install_dir"* ]]; then
             if [ ! -x "$script_path" ]; then

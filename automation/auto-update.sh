@@ -101,7 +101,12 @@ update_package_lists() {
 
     case "$package_manager" in
         apt)
-            apt-get -o Acquire::Retries=3 update >/dev/null 2>&1
+            local upd_rc=0
+            apt-get -o Acquire::Retries=3 update >/dev/null 2>&1 || upd_rc=$?
+            if [ "$upd_rc" -ne 0 ]; then
+                log_warning "apt-get update failed (exit code: $upd_rc)"
+                return 1
+            fi
             ;;
         *)
             log_error "Unsupported package manager: $package_manager"
@@ -156,8 +161,8 @@ perform_updates() {
     case "$package_manager" in
         apt)
             if [ "$security_only" = "yes" ]; then
-                # Build list of security-updated packages and upgrade only those
-                mapfile -t _sec_pkgs < <(apt-get -s upgrade | awk 'BEGIN{IGNORECASE=1} /^Inst/ && /security/ {print $2}')
+                # Build list of security-updated packages and upgrade only those (consistent with dist-upgrade simulation)
+                mapfile -t _sec_pkgs < <(apt-get -s dist-upgrade | awk 'BEGIN{IGNORECASE=1} /^Inst/ && /security/ {print $2}')
                 if [ "${#_sec_pkgs[@]}" -gt 0 ]; then
                     update_output=$(apt-get install -y --only-upgrade "${_sec_pkgs[@]}" -o Dpkg::Use-Pty=0 2>&1); rc=$?
                 else
