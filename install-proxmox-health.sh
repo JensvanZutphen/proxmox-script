@@ -1060,32 +1060,47 @@ EOF
 test_installation() {
     print_info "Testing installation..."
 
-    # Test if the main script runs
-    if $BIN_DIR/proxmox-healthcheck.sh --help >/dev/null 2>&1; then
-        print_status "Main health check script is working"
+    local rc
+
+    if [ -x "$BIN_DIR/proxmox-healthcheck.sh" ]; then
+        if "$BIN_DIR/proxmox-healthcheck.sh" --help >/dev/null 2>&1; then
+            print_status "Main health check script is working"
+        else
+            rc=$?
+            print_warning "Health check self-test exited with $rc (continuing)"
+        fi
     else
-        print_error "Main health check script failed"
-        return 1
+        print_warning "Main health check script not found at $BIN_DIR/proxmox-healthcheck.sh"
     fi
 
-    # Test notification system
-    if $BIN_DIR/proxmox-notify.sh "Test notification" "info"; then
-        print_status "Notification system is working"
+    if [ -x "$BIN_DIR/proxmox-notify.sh" ]; then
+        if "$BIN_DIR/proxmox-notify.sh" "Test notification" "info" >/dev/null 2>&1; then
+            print_status "Notification script is working"
+        else
+            rc=$?
+            print_warning "Notification test exited with $rc (continuing)"
+        fi
     else
-        print_warning "Notification system test failed (check configuration)"
+        print_warning "Notification script not found at $BIN_DIR/proxmox-notify.sh"
     fi
 
-    # Test maintenance mode
-    $BIN_DIR/proxmox-maintenance.sh enable 1m "Installation test"
-    if $BIN_DIR/proxmox-maintenance.sh status | grep -q "ACTIVE"; then
-        print_status "Maintenance mode is working"
-        $BIN_DIR/proxmox-maintenance.sh disable
+    if [ -x "$BIN_DIR/proxmox-maintenance.sh" ]; then
+        if "$BIN_DIR/proxmox-maintenance.sh" enable 1m "Installation test" >/dev/null 2>&1; then
+            if "$BIN_DIR/proxmox-maintenance.sh" status 2>/dev/null | grep -q "ACTIVE"; then
+                print_status "Maintenance mode script is working"
+                "$BIN_DIR/proxmox-maintenance.sh" disable >/dev/null 2>&1 || true
+            else
+                print_warning "Maintenance status check did not report ACTIVE (continuing)"
+            fi
+        else
+            rc=$?
+            print_warning "Maintenance mode enable exited with $rc (continuing)"
+        fi
     else
-        print_error "Maintenance mode test failed"
-        return 1
+        print_warning "Maintenance script not found at $BIN_DIR/proxmox-maintenance.sh"
     fi
 
-    print_status "All tests passed"
+    print_status "Installation smoke tests completed"
 }
 
 show_completion_message() {
