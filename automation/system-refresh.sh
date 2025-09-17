@@ -33,27 +33,11 @@ DEFAULT_CLEANUP_AGE=7
 DEFAULT_RESTART_SERVICES=("systemd-logind" "systemd-journald" "cron")
 DEFAULT_CLEANUP_DIRS=("/tmp" "/var/tmp" "/var/cache/apt/archives")
 
-# log_info writes an informational message prefixed with a timestamp and an [INFO] tag to standard error.
-log_info() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $1" >&2
-}
-
-# log_warning outputs a timestamped warning message to standard error.
-log_warning() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] $1" >&2
-}
-
-# log_error writes a timestamped error message prefixed with [ERROR] to stderr.
-log_error() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $1" >&2
-}
-
-# log_debug outputs a timestamped debug message to stderr when AUTOMATION_LOG_LEVEL is set to "DEBUG".
-log_debug() {
-    if [ "${AUTOMATION_LOG_LEVEL:-INFO}" = "DEBUG" ]; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] [DEBUG] $1" >&2
-    fi
-}
+# Conditional log function definitions - only define if not already available from utils
+type -t log_info >/dev/null 2>&1 || log_info() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $1" >&2; }
+type -t log_warning >/dev/null 2>&1 || log_warning() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] $1" >&2; }
+type -t log_error >/dev/null 2>&1 || log_error() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $1" >&2; }
+type -t log_debug >/dev/null 2>&1 || log_debug() { [ "${AUTOMATION_LOG_LEVEL:-INFO}" = "DEBUG" ] && echo "[$(date '+%Y-%m-%d %H:%M:%S')] [DEBUG] $1" >&2; }
 
 # send_automation_notification sends a notification with category "automation", honoring configured gating rules.
 #
@@ -136,9 +120,9 @@ clean_package_cache() {
             echo "$size"
         else
             local before after
-            before=$(du -sk /var/cache/apt/archives 2>/dev/null | cut -f1)
+            before=$(du -sk /var/cache/apt/archives 2>/dev/null | cut -f1); before=${before:-0}
             apt-get clean >/dev/null 2>&1 || true
-            after=$(du -sk /var/cache/apt/archives 2>/dev/null | cut -f1)
+            after=$(du -sk /var/cache/apt/archives 2>/dev/null | cut -f1); after=${after:-0}
             cleaned_size=$(( before - after ))
             [ "$cleaned_size" -lt 0 ] && cleaned_size=0
             log_info "Cleaned APT cache: ${cleaned_size}KB"
@@ -349,10 +333,40 @@ main() {
                     log_error "Missing argument for --config"
                     exit 1
                 fi
+                
+                # Security hardening checks for config file
+                if [ ! -f "$1" ]; then
+                    log_error "Config file is not a regular file: $1"
+                    exit 1
+                fi
+                
                 if [ ! -r "$1" ]; then
                     log_error "Config file not found or not readable: $1"
                     exit 1
                 fi
+                
+                # Check file ownership - must be owned by current user or root
+                local file_owner
+                file_owner=$(stat -c %u "$1" 2>/dev/null || echo "unknown")
+                local current_user
+                current_user=$(id -u)
+                
+                if [ "$file_owner" != "$current_user" ] && [ "$file_owner" != "0" ]; then
+                    log_error "Config file must be owned by current user ($current_user) or root (0), but is owned by: $file_owner"
+                    exit 1
+                fi
+                
+                # Check file permissions - must not be writable by group or others
+                local file_perms
+                file_perms=$(stat -c %a "$1" 2>/dev/null || echo "000")
+                local group_write_bit=$((file_perms % 100 / 10 % 2))
+                local other_write_bit=$((file_perms % 10 % 2))
+                
+                if [ "$group_write_bit" -eq 1 ] || [ "$other_write_bit" -eq 1 ]; then
+                    log_error "Config file must not be writable by group or others (current permissions: $file_perms): $1"
+                    exit 1
+                fi
+                
                 source "$1"
                 shift
                 ;;

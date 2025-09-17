@@ -6,8 +6,15 @@ set -euo pipefail
 
 # Source utilities and configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/../lib/utils.sh"
-source "/etc/proxmox-health/automation.conf"
+
+# Safe sourcing with fallback logging
+for f in "$SCRIPT_DIR/../lib/utils.sh" "/etc/proxmox-health/automation.conf"; do
+    if [ -r "$f" ]; then
+        source "$f"
+    else
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] Optional file not readable: $f" >&2
+    fi
+done
 
 # --- Configuration ---
 CRON_FILE="/etc/cron.d/proxmox-automation"
@@ -116,6 +123,7 @@ EOF
 
     # Install cron file
     install -m 0644 -o root -g root "$temp_file" "$CRON_FILE"
+    rm -f "$temp_file" || true
 
     log_info "Automation cron jobs generated and installed to $CRON_FILE"
 }

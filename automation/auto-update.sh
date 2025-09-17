@@ -6,17 +6,20 @@ set -euo pipefail
 
 # Source utilities and configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/../lib/utils.sh"
-source "$SCRIPT_DIR/../lib/notifications.sh"
-source "/etc/proxmox-health/automation.conf"
+
+# Safe sourcing with fallback logging
+for f in "$SCRIPT_DIR/../lib/utils.sh" "$SCRIPT_DIR/../lib/notifications.sh" "/etc/proxmox-health/automation.conf"; do
+    if [ -r "$f" ]; then
+        source "$f"
+    else
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] Optional file not readable: $f" >&2
+    fi
+done
 
 # --- Configuration ---
 DEFAULT_SECURITY_ONLY="yes"
 DEFAULT_EXCLUDE_PACKAGES=("kernel*" "proxmox*" "pve-*")
 DEFAULT_LOG_FILE="/var/log/proxmox-health/auto-update.log"
-
-# Ensure log directory exists before any logging occurs
-mkdir -p "$(dirname "$DEFAULT_LOG_FILE")"
 
 # Set noninteractive frontend to prevent prompts during unattended runs
 export DEBIAN_FRONTEND=noninteractive
@@ -25,21 +28,21 @@ export DEBIAN_FRONTEND=noninteractive
 log_info() {
     local message="$1"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $1" >&2
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $1" >> "$DEFAULT_LOG_FILE"
+    { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $1" >> "$DEFAULT_LOG_FILE"; } 2>/dev/null || true
 }
 
 # log_warning writes a timestamped WARNING message to stderr and appends the same entry to the file specified by DEFAULT_LOG_FILE.
 log_warning() {
     local message="$1"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] $1" >&2
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] $1" >> "$DEFAULT_LOG_FILE"
+    { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] $1" >> "$DEFAULT_LOG_FILE"; } 2>/dev/null || true
 }
 
 # log_error writes a timestamped ERROR message to stderr and appends the same entry to the file referenced by DEFAULT_LOG_FILE.
 log_error() {
     local message="$1"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $1" >&2
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $1" >> "$DEFAULT_LOG_FILE"
+    { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $1" >> "$DEFAULT_LOG_FILE"; } 2>/dev/null || true
 }
 
 # log_debug writes a timestamped DEBUG message to stderr and appends it to $DEFAULT_LOG_FILE when AUTOMATION_LOG_LEVEL is set to "DEBUG".
@@ -47,7 +50,7 @@ log_debug() {
     local message="$1"
     if [ "${AUTOMATION_LOG_LEVEL:-INFO}" = "DEBUG" ]; then
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] [DEBUG] $1" >&2
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] [DEBUG] $1" >> "$DEFAULT_LOG_FILE"
+        { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [DEBUG] $1" >> "$DEFAULT_LOG_FILE"; } 2>/dev/null || true
     fi
 }
 
@@ -119,9 +122,9 @@ list_available_updates() {
     case "$package_manager" in
         apt)
             if [ "$security_only" = "yes" ]; then
-                apt-get -s upgrade | grep -Ei "^Inst.*security" | wc -l
+                apt-get -s upgrade | awk 'BEGIN{IGNORECASE=1} /^Inst/ && /security/ {c++} END{print c+0}'
             else
-                apt-get -s upgrade | grep -c "^Inst"
+                apt-get -s upgrade | awk '/^Inst/ {c++} END{print c+0}'
             fi
             ;;
         *)
@@ -338,6 +341,8 @@ main() {
                     exit 1
                 fi
                 source "$1"
+                # Ensure log directory exists after potentially updating DEFAULT_LOG_FILE
+                mkdir -p "$(dirname "$DEFAULT_LOG_FILE")"
                 shift
                 ;;
             -s|--security)
@@ -363,6 +368,9 @@ main() {
     if [ "$verbose" = "yes" ]; then
         AUTOMATION_LOG_LEVEL="DEBUG"
     fi
+
+    # Ensure log directory exists before any logging occurs
+    mkdir -p "$(dirname "$DEFAULT_LOG_FILE")"
 
     log_info "Starting auto-update system automation"
     log_debug "Configuration: security_only=$security_only, dry_run=$dry_run, log_level=${AUTOMATION_LOG_LEVEL:-INFO}"
