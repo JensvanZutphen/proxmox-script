@@ -166,9 +166,18 @@ show_automation() {
 
 # view_health_summary displays the system health summary in a whiptail textbox by running the proxmox-health-summary.sh script; shows an error dialog if the script is not found.
 view_health_summary() {
-    if [[ -f "$LIB_DIR/proxmox-health-summary.sh" ]]; then
+    local script_path=""
+
+    # Prefer /usr/local/bin/proxmox-health-summary.sh, fall back to LIB_DIR
+    if [[ -f "/usr/local/bin/proxmox-health-summary.sh" ]]; then
+        script_path="/usr/local/bin/proxmox-health-summary.sh"
+    elif [[ -f "$LIB_DIR/proxmox-health-summary.sh" ]]; then
+        script_path="$LIB_DIR/proxmox-health-summary.sh"
+    fi
+
+    if [[ -n "$script_path" ]]; then
         temp_file=$(create_temp_file)
-        "$LIB_DIR/proxmox-health-summary.sh" > "$temp_file"
+        "$script_path" > "$temp_file"
         show_textbox "Health Summary" "$temp_file" 20 80
         cleanup_temp_file "$temp_file"
     else

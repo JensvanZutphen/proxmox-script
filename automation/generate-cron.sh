@@ -187,6 +187,14 @@ validate_cron_jobs() {
         # Skip comments and empty lines
         [[ "$line" =~ ^# ]] && continue
         [[ "$line" =~ ^$ ]] && continue
+        # Skip environment/variable assignment lines
+        if [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+            continue
+        fi
+        # Guard: only process lines that start with 5 cron fields
+        if ! [[ "$line" =~ ^[0-9*/,-]+[[:space:]][0-9*/,-]+[[:space:]][0-9*/,-]+[[:space:]][0-9*/,-]+[[:space:]][0-9*/,-]+[[:space:]]+ ]]; then
+            continue
+        fi
 
         # Extract schedule part (first 5 fields)
         local schedule

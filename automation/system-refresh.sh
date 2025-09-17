@@ -66,17 +66,23 @@ send_automation_notification() {
     local level="${2:-info}"
 
     # Check if notifications are enabled for this level
-    if [ "$level" = "info" ] && [ "$AUTOMATION_NOTIFY_ON_SUCCESS" != "yes" ]; then
+    if [ "$level" = "info" ] && [ "${AUTOMATION_NOTIFY_ON_SUCCESS:-no}" != "yes" ]; then
         return 0
     fi
 
     if [ "$level" = "error" ] || [ "$level" = "critical" ]; then
-        if [ "$AUTOMATION_NOTIFY_ON_FAILURE" != "critical" ] && [ "$AUTOMATION_NOTIFY_ON_FAILURE" != "warning" ]; then
-            return 0
-        fi
+        case "${AUTOMATION_NOTIFY_ON_FAILURE:-none}" in
+            critical|warning) ;;
+            *) return 0 ;;
+        esac
     fi
 
-    send_notification "$message" "$level" "automation"
+    if ! type -t send_notification >/dev/null 2>&1; then
+        log_debug "Notifications unavailable (send_notification not found); skipping delivery"
+        return 0
+    fi
+
+    send_notification "$message" "$level" "automation" || log_warning "Notification delivery failed"
 }
 
 # clean_temp_files removes files older than a given number of days from the directories listed in DEFAULT_CLEANUP_DIRS and echoes the total number of files cleaned.
@@ -113,7 +119,8 @@ clean_temp_files() {
     echo "$total_cleaned"
 }
 
-# clean_package_cache cleans or estimates the system package cache for APT or YUM; when invoked with "yes" (dry run) it reports an approximate freed size (KB) and logs the intended action, otherwise it performs the cleanup and echoes a numeric result or proxy value to stdout.
+# clean_package_cache cleans or estimates the system package cache for APT; when invoked with "yes" (dry run) it reports an approximate freed size (KB) and logs the intended action, otherwise it performs the cleanup and echoes a numeric result or proxy value to stdout.
+# Only supports APT since Proxmox is Debian-based and uses apt exclusively.
 clean_package_cache() {
     local dry_run="$1"
     local cleaned_size=0
@@ -127,31 +134,21 @@ clean_package_cache() {
             log_info "[DRY RUN] Would clean APT cache (approximately ${size}KB)"
             echo "$size"
         else
-            cleaned_size=$(apt-get clean 2>&1 | grep -E "(freed|deleted)" | awk '{print $4}' | tr -d '.,' || echo "0")
-            log_info "Cleaned APT cache: ${cleaned_size:-0}KB"
-            echo "${cleaned_size:-0}"
-        fi
-    elif command -v yum >/dev/null 2>&1; then
-        if [ "$dry_run" = "yes" ]; then
-            local size
-            size=$(du -sk /var/cache/yum 2>/dev/null | cut -f1)
-            log_info "[DRY RUN] Would clean YUM cache (approximately ${size}KB)"
-            echo "$size"
-        else
-            yum clean all >/dev/null 2>&1 || true
-            log_info "Cleaned YUM cache"
-            echo "1"
+            local before after
+            before=$(du -sk /var/cache/apt/archives 2>/dev/null | cut -f1)
+            apt-get clean >/dev/null 2>&1 || true
+            after=$(du -sk /var/cache/apt/archives 2>/dev/null | cut -f1)
+            cleaned_size=$(( before - after ))
+            [ "$cleaned_size" -lt 0 ] && cleaned_size=0
+            log_info "Cleaned APT cache: ${cleaned_size}KB"
+            echo "$cleaned_size"
         fi
     else
-        log_debug "No package manager found, skipping cache cleanup"
+        log_debug "APT not available, skipping cache cleanup"
         echo "0"
     fi
 }
 
-# clean_journal_logs removes old systemd journal logs or reports their size in dry-run mode.
-# In dry-run mode (pass "yes") it estimates and echoes the size of /var/log/journal in KB.
-# In normal mode it runs `journalctl --vacuum-time=7d` to keep only the last 7 days and echoes "1" on success.
-# If journalctl is not available it does nothing and echoes "0".
 clean_journal_logs() {
     local dry_run="$1"
     local cleaned_size=0
@@ -165,10 +162,14 @@ clean_journal_logs() {
             log_info "[DRY RUN] Would clean old journal logs (approximately ${size}KB)"
             echo "$size"
         else
-            # Keep only last 7 days of journal logs
+            local before after freed
+            before=$(du -sk /var/log/journal 2>/dev/null | cut -f1); before=${before:-0}
             journalctl --vacuum-time=7d >/dev/null 2>&1 || true
-            log_info "Cleaned old journal logs"
-            echo "1"
+            after=$(du -sk /var/log/journal 2>/dev/null | cut -f1);  after=${after:-0}
+            freed=$(( before - after ))
+            [ "$freed" -lt 0 ] && freed=0
+            log_info "Cleaned old journal logs: ${freed}KB freed"
+            echo "$freed"
         fi
     else
         log_debug "Journalctl not found, skipping journal cleanup"
@@ -214,6 +215,10 @@ refresh_system() {
 
     log_info "Starting system cache refresh (age: $age_days days, dry run: $dry_run)"
 
+    # Capture disk usage before actions
+    local disk_before
+    disk_before=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
+
     # Send start notification
     local start_message="System cache refresh started"
     if [ "$dry_run" = "yes" ]; then
@@ -250,9 +255,7 @@ refresh_system() {
     services_restarted=$(restart_services "$dry_run")
     total_services_restarted=$((total_services_restarted + services_restarted))
 
-    # Get disk space before and after
-    local disk_before
-    disk_before=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
+    # Get disk space after
     local disk_after
     disk_after=$(df / | awk 'NR==2 {print $5}' | sed 's/%//')
 
@@ -339,6 +342,14 @@ main() {
                 ;;
             -c|--config)
                 shift
+                if [ -z "${1:-}" ]; then
+                    log_error "Missing argument for --config"
+                    exit 1
+                fi
+                if [ ! -r "$1" ]; then
+                    log_error "Config file not found or not readable: $1"
+                    exit 1
+                fi
                 source "$1"
                 shift
                 ;;

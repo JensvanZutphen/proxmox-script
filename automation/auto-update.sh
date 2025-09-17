@@ -48,33 +48,29 @@ log_debug() {
     fi
 }
 
-# send_automation_notification sends an automation-scoped notification with the given message and level, but only emits info-level notifications if AUTOMATION_NOTIFY_ON_SUCCESS="yes" and only emits error/critical notifications when AUTOMATION_NOTIFY_ON_FAILURE is set to "warning" or "critical".
+# send_automation_notification sends an automation-scoped notification with the given message and level, but only emits info-level notifications if AUTOMATION_NOTIFY_ON_SUCCESS="yes" and only emits warning/error/critical notifications when AUTOMATION_NOTIFY_ON_FAILURE is set to "warning" or "critical".
 send_automation_notification() {
     local message="$1"
     local level="${2:-info}"
 
     # Check if notifications are enabled for this level
-    if [ "$level" = "info" ] && [ "$AUTOMATION_NOTIFY_ON_SUCCESS" != "yes" ]; then
-        return 0
-    fi
-
-    if [ "$level" = "error" ] || [ "$level" = "critical" ]; then
-        if [ "$AUTOMATION_NOTIFY_ON_FAILURE" != "critical" ] && [ "$AUTOMATION_NOTIFY_ON_FAILURE" != "warning" ]; then
-            return 0
-        fi
-    fi
+    case "$level" in
+      info)
+        [ "${AUTOMATION_NOTIFY_ON_SUCCESS:-no}" = "yes" ] || return 0
+        ;;
+      warning|error|critical)
+        [ "${AUTOMATION_NOTIFY_ON_FAILURE:-no}" = "warning" ] || [ "${AUTOMATION_NOTIFY_ON_FAILURE:-no}" = "critical" ] || return 0
+        ;;
+    esac
 
     send_notification "$message" "$level" "automation"
 }
 
-# check_package_manager detects the available system package manager and echoes one of: "apt", "yum", "dnf", or "unknown".
+# check_package_manager detects if apt package manager is available and echoes "apt" or "unknown".
+# Only checks for apt since Proxmox is Debian-based and uses apt exclusively.
 check_package_manager() {
     if command -v apt-get >/dev/null 2>&1; then
         echo "apt"
-    elif command -v yum >/dev/null 2>&1; then
-        echo "yum"
-    elif command -v dnf >/dev/null 2>&1; then
-        echo "dnf"
     else
         echo "unknown"
     fi
@@ -98,12 +94,6 @@ update_package_lists() {
         apt)
             apt-get update >/dev/null 2>&1
             ;;
-        yum)
-            yum check-update >/dev/null 2>&1 || true
-            ;;
-        dnf)
-            dnf check-update >/dev/null 2>&1 || true
-            ;;
         *)
             log_error "Unsupported package manager: $package_manager"
             return 1
@@ -114,7 +104,7 @@ update_package_lists() {
     return 0
 }
 
-# list_available_updates returns the number of available package updates for the specified package manager (`apt`, `yum`, or `dnf`); when `security_only` is "yes" it attempts to count only security-relevant updates, otherwise it counts all available updates.
+# list_available_updates returns the number of available package updates for the specified package manager (apt); when `security_only` is "yes" it attempts to count only security-relevant updates, otherwise it counts all available updates.
 list_available_updates() {
     local package_manager="$1"
     local security_only="$2"
@@ -129,20 +119,6 @@ list_available_updates() {
                 apt-get -s upgrade | grep -c "^Inst"
             fi
             ;;
-        yum)
-            if [ "$security_only" = "yes" ]; then
-                yum --security check-update | grep -c "^" || true
-            else
-                yum check-update | grep -c "^" || true
-            fi
-            ;;
-        dnf)
-            if [ "$security_only" = "yes" ]; then
-                dnf --security check-update | grep -c "^" || true
-            else
-                dnf check-update | grep -c "^" || true
-            fi
-            ;;
         *)
             echo "0"
             ;;
@@ -150,7 +126,7 @@ list_available_updates() {
 }
 
 # perform_updates performs system package updates using the specified package manager; supports a security-only mode and a dry-run mode and returns 0 on success or 1 on failure.
-# When not in dry-run mode, it runs the appropriate package manager command for apt/yum/dnf, checks the command's exit code to determine success, and returns non-zero for unsupported package managers.
+# When not in dry-run mode, it runs the appropriate package manager command for apt, checks the command's exit code to determine success, and returns non-zero for unsupported package managers.
 perform_updates() {
     local package_manager="$1"
     local security_only="$2"
@@ -160,6 +136,7 @@ perform_updates() {
 
     local update_output=""
     local update_success=true
+    local rc=0
 
     if [ "$dry_run" = "yes" ]; then
         log_info "[DRY RUN] Would perform system updates"
@@ -169,29 +146,15 @@ perform_updates() {
     case "$package_manager" in
         apt)
             if [ "$security_only" = "yes" ]; then
-                update_output=$(apt-get upgrade -y --with-new-pkgs -o APT::Get::Show-User-Simulation-Note=false -o Dpkg::Use-Pty=0 2>&1)
-                rc=$?
+                # Build list of security-updated packages and upgrade only those
+                mapfile -t _sec_pkgs < <(apt-get -s upgrade | awk '/^Inst/ && /Security/ {print $2}')
+                if [ "${#_sec_pkgs[@]}" -gt 0 ]; then
+                    update_output=$(apt-get install -y --only-upgrade "${_sec_pkgs[@]}" -o Dpkg::Use-Pty=0 2>&1); rc=$?
+                else
+                    update_output="No security updates available"; rc=0
+                fi
             else
-                update_output=$(apt-get full-upgrade -y -o APT::Get::Show-User-Simulation-Note=false -o Dpkg::Use-Pty=0 2>&1)
-                rc=$?
-            fi
-            ;;
-        yum)
-            if [ "$security_only" = "yes" ]; then
-                update_output=$(yum -y update --security 2>&1)
-                rc=$?
-            else
-                update_output=$(yum -y update 2>&1)
-                rc=$?
-            fi
-            ;;
-        dnf)
-            if [ "$security_only" = "yes" ]; then
-                update_output=$(dnf -y update --security 2>&1)
-                rc=$?
-            else
-                update_output=$(dnf -y update 2>&1)
-                rc=$?
+                update_output=$(apt-get full-upgrade -y -o APT::Get::Show-User-Simulation-Note=false -o Dpkg::Use-Pty=0 2>&1); rc=$?
             fi
             ;;
         *)
@@ -212,7 +175,7 @@ perform_updates() {
     fi
 }
 
-# cleanup_package_cache removes package manager caches for the given package manager (`apt`, `yum`, or `dnf`); does nothing for unknown managers.
+# cleanup_package_cache removes package manager caches for the given package manager (apt); does nothing for unknown managers.
 cleanup_package_cache() {
     local package_manager="$1"
 
@@ -221,12 +184,6 @@ cleanup_package_cache() {
     case "$package_manager" in
         apt)
             apt-get clean >/dev/null 2>&1 || true
-            ;;
-        yum)
-            yum clean all >/dev/null 2>&1 || true
-            ;;
-        dnf)
-            dnf clean all >/dev/null 2>&1 || true
             ;;
         *)
             ;;
@@ -336,7 +293,7 @@ Configuration:
   Override security_only by setting AUTOMATION_AUTO_UPDATE_SECURITY_ONLY in config.
 
 Package Managers:
-  apt (Debian/Ubuntu), yum (RHEL/CentOS 6), dnf (RHEL/CentOS 7+)
+  apt (Debian/Ubuntu) - Proxmox is Debian-based and uses apt exclusively
 
 Log File:
   $DEFAULT_LOG_FILE

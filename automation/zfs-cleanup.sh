@@ -59,15 +59,14 @@ send_automation_notification() {
     local notify_failure="${AUTOMATION_NOTIFY_ON_FAILURE:-no}"
 
     # Check if notifications are enabled for this level
-    if [ "$level" = "info" ] && [ "$notify_success" != "yes" ]; then
-        return 0
-    fi
-
-    if [ "$level" = "error" ] || [ "$level" = "critical" ]; then
-        if [ "$notify_failure" != "critical" ] && [ "$notify_failure" != "warning" ]; then
-            return 0
-        fi
-    fi
+    case "$level" in
+      info)
+        [ "$notify_success" = "yes" ] || return 0
+        ;;
+      warning|error|critical)
+        [ "$notify_failure" = "warning" ] || [ "$notify_failure" = "critical" ] || return 0
+        ;;
+    esac
 
     send_notification "$message" "$level" "automation"
 }

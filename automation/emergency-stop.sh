@@ -36,7 +36,7 @@ main() {
 
     if [ -f "$CONFIG_FILE" ]; then
         sudo sed -i 's/^AUTOMATION_ENABLED=.*/AUTOMATION_ENABLED="no"/' "$CONFIG_FILE"
-        sudo sed -i 's/^AUTOMATION_\(.*\)_ENABLED=.*/AUTOMATION_\1_ENABLED="no"/' "$CONFIG_FILE"
+        sudo sed -ri 's/^[[:space:]]*AUTOMATION_([A-Z0-9_]+)_ENABLED[[:space:]]*=.*/AUTOMATION_\1_ENABLED="no"/' "$CONFIG_FILE"
         log "Disabled automation flags in $CONFIG_FILE"
     else
         log "Config file not found: $CONFIG_FILE"
