@@ -14,7 +14,9 @@ BIN_DIR="/usr/local/bin"
 CRON_FILE="/etc/cron.d/proxmox-health"
 LOGROTATE_FILE="/etc/logrotate.d/proxmox-health"
 SYSTEMD_SERVICE="/etc/systemd/system/proxmox-health.service"
+SYSTEMD_TIMER="/etc/systemd/system/proxmox-health.timer"
 SYSTEMD_SUMMARY_SERVICE="/etc/systemd/system/proxmox-health-summary.service"
+SYSTEMD_SUMMARY_TIMER="/etc/systemd/system/proxmox-health-summary.timer"
 WEBHOOK_SECRET_FILE="/etc/proxmox-health/webhook-secret"
 
 # Load defaults from the bundled configuration so TUI prompts and installers
@@ -432,7 +434,7 @@ backup_existing_installation() {
             cp "$CRON_FILE" "$backup_dir/"
         fi
 
-        for unit in "$SYSTEMD_SERVICE" "$SYSTEMD_SERVICE.timer" "$SYSTEMD_SUMMARY_SERVICE" "$SYSTEMD_SUMMARY_SERVICE.timer"; do
+        for unit in "$SYSTEMD_SERVICE" "$SYSTEMD_TIMER" "$SYSTEMD_SUMMARY_SERVICE" "$SYSTEMD_SUMMARY_TIMER"; do
             if [ -f "$unit" ]; then
                 cp "$unit" "$backup_dir/"
             fi
@@ -858,7 +860,7 @@ SyslogIdentifier=proxmox-health
 WantedBy=multi-user.target
 EOF
 
-    cat > "$SYSTEMD_SERVICE.timer" << EOF
+    cat > "$SYSTEMD_TIMER" << EOF
 [Unit]
 Description=Run Proxmox Health Check Periodically
 Requires=proxmox-health.service
@@ -906,7 +908,7 @@ SyslogIdentifier=proxmox-health-summary
 WantedBy=multi-user.target
 EOF
 
-    cat > "$SYSTEMD_SUMMARY_SERVICE.timer" << EOF
+    cat > "$SYSTEMD_SUMMARY_TIMER" << EOF
 [Unit]
 Description=Send Proxmox Health Daily Summary
 Requires=proxmox-health-summary.service
@@ -922,9 +924,12 @@ WantedBy=timers.target
 EOF
 
     chmod 644 "$SYSTEMD_SERVICE"
-    chmod 644 "$SYSTEMD_SERVICE.timer"
+    chmod 644 "$SYSTEMD_TIMER"
     chmod 644 "$SYSTEMD_SUMMARY_SERVICE"
-    chmod 644 "$SYSTEMD_SUMMARY_SERVICE.timer"
+    chmod 644 "$SYSTEMD_SUMMARY_TIMER"
+
+    # Clean up legacy filenames (from versions that wrote *.service.timer)
+    rm -f "${SYSTEMD_SERVICE}.timer" "${SYSTEMD_SUMMARY_SERVICE}.timer" 2>/dev/null || true
 
     systemctl daemon-reload
     systemctl enable proxmox-health.timer
