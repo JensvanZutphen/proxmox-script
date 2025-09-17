@@ -657,17 +657,16 @@ install_automation_configuration() {
 
     # Apply TUI automation preferences to automation configuration
     if [ "$TUI_USED" -eq 1 ]; then
-        local auto_conf="$INSTALL_DIR/automation.conf"
 
         # Update automation configuration based on TUI selections
-        sed -i "s|^AUTOMATION_ENABLED=.*|AUTOMATION_ENABLED=yes|" "$auto_conf"
-        sed -i "s|^AUTOMATION_ZFS_CLEANUP_ENABLED=.*|AUTOMATION_ZFS_CLEANUP_ENABLED=$( [ "$TUI_AUTOMATION_ZFS_CLEANUP" -eq 1 ] && echo yes || echo no )|" "$auto_conf"
-        sed -i "s|^AUTOMATION_DISK_CLEANUP_ENABLED=.*|AUTOMATION_DISK_CLEANUP_ENABLED=$( [ "$TUI_AUTOMATION_DISK_CLEANUP" -eq 1 ] && echo yes || echo no )|" "$auto_conf"
-        sed -i "s|^AUTOMATION_MEMORY_RELIEF_ENABLED=.*|AUTOMATION_MEMORY_RELIEF_ENABLED=$( [ "$TUI_AUTOMATION_MEMORY_RELIEF" -eq 1 ] && echo yes || echo no )|" "$auto_conf"
-        sed -i "s|^AUTOMATION_SYSTEM_REFRESH_ENABLED=.*|AUTOMATION_SYSTEM_REFRESH_ENABLED=$( [ "$TUI_AUTOMATION_SYSTEM_REFRESH" -eq 1 ] && echo yes || echo no )|" "$auto_conf"
-        sed -i "s|^AUTOMATION_AUTO_UPDATE_ENABLED=.*|AUTOMATION_AUTO_UPDATE_ENABLED=$( [ "$TUI_AUTOMATION_AUTO_UPDATE" -eq 1 ] && echo yes || echo no )|" "$auto_conf"
+        sed -i "s|^AUTOMATION_ENABLED=.*|AUTOMATION_ENABLED=yes|" "$AUTOMATION_CONFIG_FILE"
+        sed -i "s|^AUTOMATION_ZFS_CLEANUP_ENABLED=.*|AUTOMATION_ZFS_CLEANUP_ENABLED=$( [ "$TUI_AUTOMATION_ZFS_CLEANUP" -eq 1 ] && echo yes || echo no )|" "$AUTOMATION_CONFIG_FILE"
+        sed -i "s|^AUTOMATION_DISK_CLEANUP_ENABLED=.*|AUTOMATION_DISK_CLEANUP_ENABLED=$( [ "$TUI_AUTOMATION_DISK_CLEANUP" -eq 1 ] && echo yes || echo no )|" "$AUTOMATION_CONFIG_FILE"
+        sed -i "s|^AUTOMATION_MEMORY_RELIEF_ENABLED=.*|AUTOMATION_MEMORY_RELIEF_ENABLED=$( [ "$TUI_AUTOMATION_MEMORY_RELIEF" -eq 1 ] && echo yes || echo no )|" "$AUTOMATION_CONFIG_FILE"
+        sed -i "s|^AUTOMATION_SYSTEM_REFRESH_ENABLED=.*|AUTOMATION_SYSTEM_REFRESH_ENABLED=$( [ "$TUI_AUTOMATION_SYSTEM_REFRESH" -eq 1 ] && echo yes || echo no )|" "$AUTOMATION_CONFIG_FILE"
+        sed -i "s|^AUTOMATION_AUTO_UPDATE_ENABLED=.*|AUTOMATION_AUTO_UPDATE_ENABLED=$( [ "$TUI_AUTOMATION_AUTO_UPDATE" -eq 1 ] && echo yes || echo no )|" "$AUTOMATION_CONFIG_FILE"
 
-        print_status "Applied TUI automation preferences to $auto_conf"
+        print_status "Applied TUI automation preferences to $AUTOMATION_CONFIG_FILE"
     fi
 
     # Generate and install cron jobs for automation
