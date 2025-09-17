@@ -6,8 +6,22 @@ set -euo pipefail
 
 # Source utilities and configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/../lib/utils.sh"
-source "$SCRIPT_DIR/../lib/notifications.sh"
+UTILS_FILE="$SCRIPT_DIR/../lib/utils.sh"
+NOTIFICATIONS_FILE="$SCRIPT_DIR/../lib/notifications.sh"
+
+if [ -f "$UTILS_FILE" ]; then
+    source "$UTILS_FILE"
+else
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] Required file $UTILS_FILE not found." >&2
+    exit 1
+fi
+
+if [ -f "$NOTIFICATIONS_FILE" ]; then
+    source "$NOTIFICATIONS_FILE"
+else
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] Required file $NOTIFICATIONS_FILE not found." >&2
+    exit 1
+fi
 source "/etc/proxmox-health/automation.conf"
 
 # --- Configuration ---
