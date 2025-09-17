@@ -204,6 +204,11 @@ setup_directories() {
         mkdir -p "/run/proxmox-health"
         chmod 755 "/run/proxmox-health"
     fi
+
+    if [ -n "${VZDUMP_LOG_DIR:-}" ] && [ ! -d "$VZDUMP_LOG_DIR" ]; then
+        mkdir -p "$VZDUMP_LOG_DIR"
+        chmod 755 "$VZDUMP_LOG_DIR"
+    fi
 }
 
 cleanup_old_files() {

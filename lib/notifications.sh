@@ -67,6 +67,28 @@ is_notification_cooldown_active() {
     return 1  # Cooldown not active
 }
 
+has_discord_webhook() {
+    if [ -n "${WEBHOOK_URL:-}" ]; then
+        return 0
+    fi
+    if [ -s "$WEBHOOK_SECRET_FILE" ]; then
+        return 0
+    fi
+    return 1
+}
+
+get_discord_webhook() {
+    if [ -n "${WEBHOOK_URL:-}" ]; then
+        printf '%s' "$WEBHOOK_URL"
+        return 0
+    fi
+    if [ -s "$WEBHOOK_SECRET_FILE" ]; then
+        cat "$WEBHOOK_SECRET_FILE"
+        return 0
+    fi
+    return 1
+}
+
 # --- Alert Level Management ---
 get_alert_level() {
     local level="$1"
@@ -84,17 +106,10 @@ send_discord_notification() {
     local message="$1"
     local level="${2:-info}"
 
-    # Check if webhook URL is configured
-    if [ -z "$WEBHOOK_URL" ]; then
-        log_warning "Discord webhook URL not configured"
-        return 1
-    fi
-
-    # Get webhook from secret file if configured
-    if [ -f "$WEBHOOK_SECRET_FILE" ]; then
-        local webhook_url
-        webhook_url=$(cat "$WEBHOOK_SECRET_FILE")
-        [ -n "$webhook_url" ] && WEBHOOK_URL="$webhook_url"
+    local webhook_url
+    if ! webhook_url=$(get_discord_webhook); then
+        log_debug "Discord webhook not configured; skipping webhook notification"
+        return 0
     fi
 
     # Get hostname and format message
@@ -120,7 +135,7 @@ send_discord_notification() {
     while [ $retry_count -lt "$max_retries" ]; do
         if curl -s -H "Content-Type: application/json" -X POST \
            -d "$json_payload" \
-           "$WEBHOOK_URL" >/dev/null 2>&1; then
+           "$webhook_url" >/dev/null 2>&1; then
             log_info "Discord notification sent successfully"
             return 0
         else
@@ -406,9 +421,12 @@ test_email_notification() {
 }
 
 test_all_notifications() {
-    log_info "Testing notification channel (Discord)..."
-
-    test_discord_notification
+    if has_discord_webhook; then
+        log_info "Testing notification channel (Discord)..."
+        test_discord_notification
+    else
+        log_info "Skipping Discord notification test (no webhook configured)"
+    fi
 
     send_notification "Test notification completed" "info" "test"
 }
