@@ -114,9 +114,9 @@ clean_old_logs() {
 
     # Remove compressed log files
     cleaned_count=$(find /var/log -name "*.gz" -delete 2>/dev/null | wc -l)
-    cleaned_count=$((cleaned_count + $(find /var/log -name "*.old" -delete 2>/dev/null | wc -l))
-    cleaned_count=$((cleaned_count + $(find /var/log -name "*.1" -delete 2>/dev/null | wc -l))
-    cleaned_count=$((cleaned_count + $(find /var/log -name "*.2" -delete 2>/dev/null | wc -l))
+    cleaned_count=$((cleaned_count + $(find /var/log -name "*.old" -delete 2>/dev/null | wc -l)))
+    cleaned_count=$((cleaned_count + $(find /var/log -name "*.1" -delete 2>/dev/null | wc -l)))
+    cleaned_count=$((cleaned_count + $(find /var/log -name "*.2" -delete 2>/dev/null | wc -l)))
 
     log_info "Cleaned $cleaned_count old log files"
     echo "$cleaned_count"
