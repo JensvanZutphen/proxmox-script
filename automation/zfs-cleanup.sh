@@ -55,17 +55,18 @@ log_debug() {
 send_automation_notification() {
     local message="$1"
     local level="${2:-info}"
+    local notify_success="${AUTOMATION_NOTIFY_ON_SUCCESS:-no}"
+    local notify_failure="${AUTOMATION_NOTIFY_ON_FAILURE:-no}"
 
     # Check if notifications are enabled for this level
-    if [ "$level" = "info" ] && [ "$AUTOMATION_NOTIFY_ON_SUCCESS" != "yes" ]; then
-        return 0
-    fi
-
-    if [ "$level" = "error" ] || [ "$level" = "critical" ]; then
-        if [ "$AUTOMATION_NOTIFY_ON_FAILURE" != "critical" ] && [ "$AUTOMATION_NOTIFY_ON_FAILURE" != "warning" ]; then
-            return 0
-        fi
-    fi
+    case "$level" in
+      info)
+        [ "$notify_success" = "yes" ] || return 0
+        ;;
+      warning|error|critical)
+        [ "$notify_failure" = "warning" ] || [ "$notify_failure" = "critical" ] || return 0
+        ;;
+    esac
 
     send_notification "$message" "$level" "automation"
 }
@@ -84,7 +85,7 @@ find_old_snapshots() {
     local retention_days="$1"
     local snapshot_pattern="${2:-$DEFAULT_SNAPSHOT_PATTERN}"
 
-    log_debug "Searching for snapshots older than $retention days with pattern: $snapshot_pattern"
+    log_debug "Searching for snapshots older than $retention_days days with pattern: $snapshot_pattern"
 
     # Find all snapshots that match the auto pattern
     zfs list -t snapshot -o name -H | grep -E "$snapshot_pattern" | while read -r snapshot; do
@@ -126,7 +127,7 @@ remove_snapshot() {
 }
 
 # cleanup_snapshots performs ZFS snapshot cleanup by finding snapshots older than the given retention period and removing them (supports dry-run).
-# 
+#
 # It sends start and completion notifications, logs progress, and checks that ZFS utilities are available before proceeding.
 # retention_days: retention window in days (snapshots older than this are targeted).
 # dry_run: set to "yes" to simulate removals without destroying snapshots.

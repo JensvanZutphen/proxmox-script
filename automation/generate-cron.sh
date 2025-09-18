@@ -6,8 +6,27 @@ set -euo pipefail
 
 # Source utilities and configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/../lib/utils.sh"
-source "/etc/proxmox-health/automation.conf"
+
+# Safe sourcing with fallback logging
+for f in "$SCRIPT_DIR/../lib/utils.sh" "/etc/proxmox-health/automation.conf"; do
+    if [ -r "$f" ]; then
+        # Validate system config file ownership/permissions before sourcing
+        if [ "$f" = "/etc/proxmox-health/automation.conf" ] && command -v stat >/dev/null 2>&1; then
+            owner_uid=$(stat -c '%u' "$f" 2>/dev/null || echo '')
+            perms=$(stat -c '%a' "$f" 2>/dev/null || echo '000')
+            grp_digit=$(( (10#$perms / 10) % 10 ))
+            oth_digit=$(( 10#$perms % 10 ))
+            if { [ "$owner_uid" != "0" ] && [ "$owner_uid" != "$(id -u)" ]; } || \
+               { [ $((grp_digit & 2)) -ne 0 ] || [ $((oth_digit & 2)) -ne 0 ]; }; then
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] Unsafe config file: $f (owner_uid=$owner_uid perms=$perms)" >&2
+                continue
+            fi
+        fi
+        source "$f"
+    else
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] Optional file not readable: $f" >&2
+    fi
+done
 
 # --- Configuration ---
 CRON_FILE="/etc/cron.d/proxmox-automation"
@@ -68,6 +87,8 @@ EOF
     # Add environment variables for automation scripts
     cat >> "$temp_file" << 'EOF'
 # Environment variables for automation scripts
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 AUTOMATION_LOG_LEVEL=INFO
 CONFIG_DIR=/etc/proxmox-health
 STATE_DIR=/var/tmp/proxmox-health
@@ -82,16 +103,21 @@ EOF
         local script_name="$3"
         local script_args="$4"
 
-        if [ "${!enabled_var}" = "yes" ]; then
-            local schedule="${!schedule_var}"
+        if [ "${!enabled_var:-no}" = "yes" ]; then
+            local schedule="${!schedule_var:-}"
 
-            if validate_cron_schedule "$schedule"; then
+            if [ -n "$schedule" ] && validate_cron_schedule "$schedule"; then
                 echo "# $script_name" >> "$temp_file"
-                echo "$schedule root $SCRIPT_INSTALL_DIR/$script_name $script_args" >> "$temp_file"
+                # Quote script path; append args only if provided
+                if [ -n "$script_args" ]; then
+                  echo "$schedule root \"$SCRIPT_INSTALL_DIR/$script_name\" $script_args" >> "$temp_file"
+                else
+                  echo "$schedule root \"$SCRIPT_INSTALL_DIR/$script_name\"" >> "$temp_file"
+                fi
                 echo "" >> "$temp_file"
                 log_info "Added cron job for $script_name: $schedule"
             else
-                log_warning "Invalid cron schedule for $script_name: $schedule"
+                log_warning "Invalid or empty cron schedule for $script_name: $schedule"
             fi
         else
             log_debug "Skipping disabled cron job for $script_name"
@@ -113,9 +139,13 @@ EOF
 EOF
 
     # Install cron file
-    mv "$temp_file" "$CRON_FILE"
-
-    chmod 644 "$CRON_FILE"
+    if [ "${EUID:-$(id -u)}" -ne 0 ]; then
+        log_error "Root privileges required to install $CRON_FILE"
+        rm -f "$temp_file" || true
+        return 1
+    fi
+    install -m 0644 -o root -g root "$temp_file" "$CRON_FILE"
+    rm -f "$temp_file" || true
 
     log_info "Automation cron jobs generated and installed to $CRON_FILE"
 }
@@ -185,21 +215,52 @@ validate_cron_jobs() {
         # Skip comments and empty lines
         [[ "$line" =~ ^# ]] && continue
         [[ "$line" =~ ^$ ]] && continue
-
-        # Extract schedule part (first 5 fields)
-        local schedule
-        schedule=$(echo "$line" | awk '{print $1" "$2" "$3" "$4" "$5}')
-
-        if ! validate_cron_schedule "$schedule"; then
-            log_error "Invalid cron schedule at line $line_number: $schedule"
-            errors=$((errors + 1))
+        # Skip environment/variable assignment lines
+        if [[ "$line" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; then
+            continue
+        fi
+        # Guard: only process lines that start with 5 cron fields or @shortcuts
+        if ! [[ "$line" =~ ^([0-9*/,-]+[[:space:]]+){5} || "$line" =~ ^@(reboot|yearly|annually|monthly|weekly|daily|hourly)[[:space:]]+ ]]; then
+            continue
         fi
 
-        # Check if script exists
+        local schedule script_field
+        if [[ "$line" =~ ^@(reboot|yearly|annually|monthly|weekly|daily|hourly)[[:space:]]+ ]]; then
+            # @-shortcut form: "@reboot USER CMD..."; user=$2, command=$3
+            schedule="$(echo "$line" | awk '{print $1}')"
+            script_field=3
+        else
+            # Standard 5-field form: "m h dom mon dow USER CMD..."
+            schedule="$(echo "$line" | awk '{print $1" "$2" "$3" "$4" "$5}')"
+            script_field=7
+            if ! validate_cron_schedule "$schedule"; then
+                log_error "Invalid cron schedule at line $line_number: $schedule"
+                errors=$((errors + 1))
+            fi
+        fi
+
+        # Check if script exists and is executable (only for absolute paths or SCRIPT_INSTALL_DIR paths)
         local script_path
-        script_path=$(echo "$line" | awk '{print $7}')
-        if [ -n "$script_path" ] && [ ! -f "$script_path" ]; then
-            log_warning "Script not found: $script_path (line $line_number)"
+        script_path=$(awk -v n="$script_field" '{print $n}' <<<"$line")
+
+        # Remove surrounding quotes if present
+        script_path=${script_path#\"}
+        script_path=${script_path%\"}
+        script_path=${script_path#\'}
+        script_path=${script_path%\'}
+
+        # Normalize SCRIPT_INSTALL_DIR for comparison (remove trailing slash)
+        local normalized_install_dir="${SCRIPT_INSTALL_DIR%/}"
+
+        # Only validate paths that are absolute or start with SCRIPT_INSTALL_DIR
+        if [ -n "$script_path" ] && [[ "$script_path" == /* || "$script_path" == "$normalized_install_dir"* ]]; then
+            if [ ! -x "$script_path" ]; then
+                if [ -f "$script_path" ]; then
+                    log_warning "Script not executable: $script_path (line $line_number)"
+                else
+                    log_warning "Script not found: $script_path (line $line_number)"
+                fi
+            fi
         fi
 
     done < "$CRON_FILE"
@@ -275,6 +336,27 @@ main() {
                 ;;
             -c|--config)
                 shift
+                if [ -z "${1:-}" ]; then
+                    log_error "Missing argument for --config"
+                    exit 1
+                fi
+                if [ ! -r "$1" ]; then
+                    log_error "Config file not found or not readable: $1"
+                    exit 1
+                fi
+                # Ownership/perms: root or current user; not group/other writable
+                if command -v stat >/dev/null 2>&1; then
+                  owner_uid=$(stat -c '%u' "$1" 2>/dev/null || echo '')
+                  perms=$(stat -c '%a' "$1" 2>/dev/null || echo '000')
+                  cur_uid=$(id -u)
+                  grp_digit=$(( (10#$perms / 10) % 10 ))
+                  oth_digit=$(( 10#$perms % 10 ))
+                  if { [ "$owner_uid" != "$cur_uid" ] && [ "$owner_uid" != "0" ]; } || \
+                     { [ $((grp_digit & 2)) -ne 0 ] || [ $((oth_digit & 2)) -ne 0 ]; }; then
+                    log_error "Unsafe config file permissions/owner: $1 (owner_uid=$owner_uid perms=$perms)"
+                    exit 1
+                  fi
+                fi
                 source "$1"
                 shift
                 ;;

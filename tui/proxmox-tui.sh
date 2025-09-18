@@ -166,8 +166,20 @@ show_automation() {
 
 # view_health_summary displays the system health summary in a whiptail textbox by running the proxmox-health-summary.sh script; shows an error dialog if the script is not found.
 view_health_summary() {
-    if [[ -f "$LIB_DIR/proxmox-health-summary.sh" ]]; then
-        "$LIB_DIR/proxmox-health-summary.sh" | whiptail --title "Health Summary" --textbox - 20 80
+    local script_path=""
+
+    # Prefer /usr/local/bin/proxmox-health-summary.sh, fall back to LIB_DIR
+    if [[ -f "/usr/local/bin/proxmox-health-summary.sh" ]]; then
+        script_path="/usr/local/bin/proxmox-health-summary.sh"
+    elif [[ -f "$LIB_DIR/proxmox-health-summary.sh" ]]; then
+        script_path="$LIB_DIR/proxmox-health-summary.sh"
+    fi
+
+    if [[ -n "$script_path" ]]; then
+        temp_file=$(create_temp_file)
+        "$script_path" > "$temp_file"
+        show_textbox "Health Summary" "$temp_file" 20 80
+        cleanup_temp_file "$temp_file"
     else
         whiptail --title "Error" --msgbox "Health summary script not found." 8 40
     fi
@@ -202,7 +214,10 @@ view_system_metrics() {
 # view_recent_alerts displays the most recent WARNING/ERROR/CRITICAL entries from /var/log/proxmox-health/proxmox-health.log in a whiptail textbox; shows an error dialog if the log file is not present.
 view_recent_alerts() {
     if [[ -f "/var/log/proxmox-health/proxmox-health.log" ]]; then
-        tail -n 50 "/var/log/proxmox-health/proxmox-health.log" | grep -E "(WARNING|ERROR|CRITICAL)" | whiptail --title "Recent Alerts" --textbox - 20 80
+        temp_file=$(create_temp_file)
+        tail -n 50 "/var/log/proxmox-health/proxmox-health.log" | grep -E "(WARNING|ERROR|CRITICAL)" > "$temp_file"
+        show_textbox "Recent Alerts" "$temp_file" 20 80
+        cleanup_temp_file "$temp_file"
     else
         whiptail --title "Error" --msgbox "Alert log file not found." 8 40
     fi
@@ -304,7 +319,10 @@ toggle_monitoring() {
 # view_check_history displays the last 100 lines of /var/log/proxmox-health/proxmox-health.log in a whiptail textbox; if the log is missing, shows an error message.
 view_check_history() {
     if [[ -f "/var/log/proxmox-health/proxmox-health.log" ]]; then
-        tail -n 100 "/var/log/proxmox-health/proxmox-health.log" | whiptail --title "Check History" --textbox - 20 80
+        temp_file=$(create_temp_file)
+        tail -n 100 "/var/log/proxmox-health/proxmox-health.log" > "$temp_file"
+        show_textbox "Check History" "$temp_file" 20 80
+        cleanup_temp_file "$temp_file"
     else
         whiptail --title "Error" --msgbox "Check history log not found." 8 40
     fi
@@ -704,7 +722,10 @@ schedule_maintenance() {
 # view_maintenance_history displays the last 20 maintenance-related entries from /var/log/proxmox-health/proxmox-health.log in a whiptail textbox, or shows an error message if the log file is not present.
 view_maintenance_history() {
     if [[ -f "/var/log/proxmox-health/proxmox-health.log" ]]; then
-        grep -i "maintenance" "/var/log/proxmox-health/proxmox-health.log" | tail -n 20 | whiptail --title "Maintenance History" --textbox - 15 60
+        temp_file=$(create_temp_file)
+        grep -i "maintenance" "/var/log/proxmox-health/proxmox-health.log" | tail -n 20 > "$temp_file"
+        show_textbox "Maintenance History" "$temp_file" 15 60
+        cleanup_temp_file "$temp_file"
     else
         whiptail --title "Error" --msgbox "Maintenance history not found." 8 40
     fi

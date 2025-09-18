@@ -36,13 +36,7 @@ main() {
 
     if [ -f "$CONFIG_FILE" ]; then
         sudo sed -i 's/^AUTOMATION_ENABLED=.*/AUTOMATION_ENABLED="no"/' "$CONFIG_FILE"
-        sudo sed -i 's/^AUTOMATION_.*_ENABLED=.*/&_DISABLED_PLACEHOLDER/' "$CONFIG_FILE" || true
-        # Disable each known job explicitly (idempotent)
-        sudo sed -i 's/^AUTOMATION_ZFS_CLEANUP_ENABLED=.*/AUTOMATION_ZFS_CLEANUP_ENABLED="no"/' "$CONFIG_FILE"
-        sudo sed -i 's/^AUTOMATION_DISK_CLEANUP_ENABLED=.*/AUTOMATION_DISK_CLEANUP_ENABLED="no"/' "$CONFIG_FILE"
-        sudo sed -i 's/^AUTOMATION_MEMORY_RELIEF_ENABLED=.*/AUTOMATION_MEMORY_RELIEF_ENABLED="no"/' "$CONFIG_FILE"
-        sudo sed -i 's/^AUTOMATION_SYSTEM_REFRESH_ENABLED=.*/AUTOMATION_SYSTEM_REFRESH_ENABLED="no"/' "$CONFIG_FILE"
-        sudo sed -i 's/^AUTOMATION_AUTO_UPDATE_ENABLED=.*/AUTOMATION_AUTO_UPDATE_ENABLED="no"/' "$CONFIG_FILE"
+        sudo sed -ri 's/^[[:space:]]*AUTOMATION_([A-Z0-9_]+)_ENABLED[[:space:]]*=.*/AUTOMATION_\1_ENABLED="no"/' "$CONFIG_FILE"
         log "Disabled automation flags in $CONFIG_FILE"
     else
         log "Config file not found: $CONFIG_FILE"

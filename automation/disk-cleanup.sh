@@ -6,9 +6,30 @@ set -euo pipefail
 
 # Source utilities and configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "$SCRIPT_DIR/../lib/utils.sh"
-source "$SCRIPT_DIR/../lib/notifications.sh"
-source "/etc/proxmox-health/automation.conf"
+UTILS_FILE="$SCRIPT_DIR/../lib/utils.sh"
+NOTIFICATIONS_FILE="$SCRIPT_DIR/../lib/notifications.sh"
+CONFIG_FILE="/etc/proxmox-health/automation.conf"
+
+if [ -r "$UTILS_FILE" ]; then
+    source "$UTILS_FILE"
+else
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] Required file $UTILS_FILE not found or not readable." >&2
+    exit 1
+fi
+
+if [ -r "$NOTIFICATIONS_FILE" ]; then
+    source "$NOTIFICATIONS_FILE"
+else
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] Required file $NOTIFICATIONS_FILE not found or not readable." >&2
+    exit 1
+fi
+
+if [ -r "$CONFIG_FILE" ]; then
+    source "$CONFIG_FILE"
+else
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] Required file $CONFIG_FILE not found or not readable." >&2
+    exit 1
+fi
 
 # --- Configuration ---
 DEFAULT_THRESHOLD=95
@@ -92,7 +113,7 @@ clean_old_files() {
     fi
 
     # Actually remove files
-    cleaned_count=$(find "$dir" -type f -mtime +"$days" -delete 2>/dev/null | wc -l)
+    cleaned_count=$(find "$dir" -type f -mtime +"$days" -print -delete 2>/dev/null | wc -l)
     log_info "Cleaned $cleaned_count files from $dir (older than $days days)"
     echo "$cleaned_count"
 }
@@ -112,11 +133,20 @@ clean_old_logs() {
         return 0
     fi
 
-    # Remove compressed log files
-    cleaned_count=$(find /var/log -name "*.gz" -delete 2>/dev/null | wc -l)
-    cleaned_count=$((cleaned_count + $(find /var/log -name "*.old" -delete 2>/dev/null | wc -l))
-    cleaned_count=$((cleaned_count + $(find /var/log -name "*.1" -delete 2>/dev/null | wc -l))
-    cleaned_count=$((cleaned_count + $(find /var/log -name "*.2" -delete 2>/dev/null | wc -l))
+    # Count and remove compressed log files
+    local count_gz count_old count_1 count_2
+    count_gz=$(find /var/log -name "*.gz" -print 2>/dev/null | wc -l)
+    count_old=$(find /var/log -name "*.old" -print 2>/dev/null | wc -l)
+    count_1=$(find /var/log -name "*.1" -print 2>/dev/null | wc -l)
+    count_2=$(find /var/log -name "*.2" -print 2>/dev/null | wc -l)
+
+    # Remove the files
+    find /var/log -name "*.gz" -delete 2>/dev/null
+    find /var/log -name "*.old" -delete 2>/dev/null
+    find /var/log -name "*.1" -delete 2>/dev/null
+    find /var/log -name "*.2" -delete 2>/dev/null
+
+    cleaned_count=$((count_gz + count_old + count_1 + count_2))
 
     log_info "Cleaned $cleaned_count old log files"
     echo "$cleaned_count"
@@ -147,9 +177,14 @@ clean_apt_cache() {
     fi
 
     if command -v apt-get >/dev/null 2>&1; then
-        cleaned_size=$(apt-get clean 2>&1 | grep -E "(freed|deleted)" | awk '{print $4}' | tr -d '.,' || echo "0")
-        log_info "Cleaned APT cache: ${cleaned_size:-0}KB"
-        echo "${cleaned_size:-0}"
+        local before after
+        before=$(du -sk /var/cache/apt/archives 2>/dev/null | awk '{print $1}')
+        apt-get clean >/dev/null 2>&1 || true
+        after=$(du -sk /var/cache/apt/archives 2>/dev/null | awk '{print $1}')
+        cleaned_size=$(( before - after ))
+        [ "$cleaned_size" -lt 0 ] && cleaned_size=0
+        log_info "Cleaned APT cache: ${cleaned_size}KB"
+        echo "$cleaned_size"
     else
         log_debug "APT not available, skipping cache cleanup"
         echo "0"
@@ -157,7 +192,7 @@ clean_apt_cache() {
 }
 
 # perform_emergency_cleanup checks root disk usage against a threshold and, if needed, performs (or simulates) emergency cleanup, then reports the results.
-# 
+#
 # When usage is at or above the provided threshold or free space is below DEFAULT_MIN_FREE_SPACE_GB, this function notifies, runs cleanup actions (old files in DEFAULT_CLEANUP_DIRS with per-directory age policies, rotated/compressed logs, and APT cache), rechecks disk state, and sends a completion notification. The first argument is the threshold percentage (1–100); the second is a dry-run flag ("yes" to only simulate, otherwise perform deletions).
 perform_emergency_cleanup() {
     local threshold="$1"
@@ -280,7 +315,7 @@ EOF
 
 # main parses command-line options (help, test/dry-run, verbose, config, or numeric threshold), validates the threshold (1–100), configures logging and dry-run flags, invokes perform_emergency_cleanup, and exits with its return code.
 main() {
-    local threshold="${1:-${AUTOMATION_DISK_CLEANUP_THRESHOLD:-$DEFAULT_THRESHOLD}}"
+    local threshold="${AUTOMATION_DISK_CLEANUP_THRESHOLD:-$DEFAULT_THRESHOLD}"
     local dry_run="no"
     local verbose="no"
 

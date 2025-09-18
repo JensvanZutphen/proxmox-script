@@ -310,7 +310,7 @@ EOF
 }
 
 # handle_error logs an error, displays it in a whiptail error dialog, and exits the script.
-# 
+#
 # Arguments:
 #   error_message — human-readable error text to log and display.
 #   exit_code (optional) — numeric exit code to use when exiting; defaults to 1.
