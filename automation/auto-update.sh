@@ -3,6 +3,7 @@
 # This script performs system updates with configurable security-only option
 
 set -euo pipefail
+umask 027
 
 # Source utilities and configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,6 +12,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 for f in "$SCRIPT_DIR/../lib/utils.sh" "$SCRIPT_DIR/../lib/notifications.sh" "/etc/proxmox-health/automation.conf"; do
     if [ -r "$f" ]; then
         if [ "$f" = "/etc/proxmox-health/automation.conf" ] && command -v stat >/dev/null 2>&1; then
+            # Must be a regular file and live in a safe directory
+            if [ ! -f "$f" ]; then
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] Config is not a regular file: $f" >&2
+                continue
+            fi
             # Check for symlinks first to prevent link attacks
             if [ -L "$f" ]; then
                 echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] Config file is a symlink (link attack prevention): $f" >&2
@@ -23,6 +29,16 @@ for f in "$SCRIPT_DIR/../lib/utils.sh" "$SCRIPT_DIR/../lib/notifications.sh" "/e
             if { [ "$owner_uid" != "0" ] && [ "$owner_uid" != "$(id -u)" ]; } || \
                { [ $((grp_digit & 2)) -ne 0 ] || [ $((oth_digit & 2)) -ne 0 ]; }; then
                 echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] Unsafe config file: $f (owner_uid=$owner_uid perms=$perms)" >&2
+                continue
+            fi
+            parent="$(dirname -- "$f")"
+            p_owner_uid=$(stat -c '%u' "$parent" 2>/dev/null || echo '')
+            p_perms=$(stat -c '%a' "$parent" 2>/dev/null || echo '000')
+            p_grp_digit=$(( (10#$p_perms / 10) % 10 ))
+            p_oth_digit=$(( 10#$p_perms % 10 ))
+            if { [ "$p_owner_uid" != "0" ] && [ "$p_owner_uid" != "$(id -u)" ]; } || \
+               { [ $((p_grp_digit & 2)) -ne 0 ] || [ $((p_oth_digit & 2)) -ne 0 ]; }; then
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] Unsafe parent dir for config: $parent (owner_uid=$p_owner_uid perms=$p_perms)" >&2
                 continue
             fi
         fi
@@ -40,59 +56,22 @@ DEFAULT_LOG_FILE="/var/log/proxmox-health/auto-update.log"
 # Set noninteractive frontend to prevent prompts during unattended runs
 export DEBIAN_FRONTEND=noninteractive
 
-# log_info logs an informational message with a timestamp to stderr and appends the same entry to $DEFAULT_LOG_FILE.
-log_info() {
-    local message="$1"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $message" >&2
-    { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [INFO] $message" >> "$DEFAULT_LOG_FILE"; } 2>/dev/null || true
-}
-
-# log_warning writes a timestamped WARNING message to stderr and appends the same entry to the file specified by DEFAULT_LOG_FILE.
-log_warning() {
-    local message="$1"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] $message" >&2
-    { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WARNING] $message" >> "$DEFAULT_LOG_FILE"; } 2>/dev/null || true
-}
-
-# log_error writes a timestamped ERROR message to stderr and appends the same entry to the file referenced by DEFAULT_LOG_FILE.
-log_error() {
-    local message="$1"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $message" >&2
-    { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] $message" >> "$DEFAULT_LOG_FILE"; } 2>/dev/null || true
-}
-
-# log_debug writes a timestamped DEBUG message to stderr and appends it to $DEFAULT_LOG_FILE when AUTOMATION_LOG_LEVEL is set to "DEBUG".
-log_debug() {
-    local message="$1"
-    if [ "${AUTOMATION_LOG_LEVEL:-INFO}" = "DEBUG" ]; then
-        echo "[$(date '+%Y-%m-%d %H:%M:%S')] [DEBUG] $message" >&2
-        { echo "[$(date '+%Y-%m-%d %H:%M:%S')] [DEBUG] $message" >> "$DEFAULT_LOG_FILE"; } 2>/dev/null || true
-    fi
-}
+# Logging functions are now sourced from lib/utils.sh
 
 # send_automation_notification sends an automation-scoped notification with the given message and level.
-# - info: only if AUTOMATION_NOTIFY_ON_SUCCESS="yes"
-# - warning: only if AUTOMATION_NOTIFY_ON_FAILURE="warning"
-# - error: only if AUTOMATION_NOTIFY_ON_FAILURE="warning"
-# - critical: only if AUTOMATION_NOTIFY_ON_FAILURE="warning" or "critical"
+# Uses threshold semantics where AUTOMATION_NOTIFY_ON_FAILURE defines the minimum severity level
+# that triggers notifications (none, warning, error, critical)
 send_automation_notification() {
     local message="$1"
     local level="${2:-info}"
 
-    # Check if notifications are enabled for this level
-    case "$level" in
-      info)
-        [ "${AUTOMATION_NOTIFY_ON_SUCCESS:-no}" = "yes" ] || return 0
-        ;;
-      warning)
-        [ "${AUTOMATION_NOTIFY_ON_FAILURE:-no}" = "warning" ] || return 0
-        ;;
-      error)
-        [ "${AUTOMATION_NOTIFY_ON_FAILURE:-no}" = "warning" ] || return 0
-        ;;
-      critical)
-        case "${AUTOMATION_NOTIFY_ON_FAILURE:-no}" in warning|critical) ;; * ) return 0 ;; esac
-        ;;
+    case "$level:${AUTOMATION_NOTIFY_ON_FAILURE:-none}" in
+      info:*)    [ "${AUTOMATION_NOTIFY_ON_SUCCESS:-no}" = "yes" ] || return 0 ;;
+      warning:none|error:none|critical:none) return 0 ;;
+      warning:warning|warning:error|warning:critical) ;;
+      error:error|error:critical) ;;
+      critical:warning|critical:error|critical:critical) ;;
+      *) return 0 ;;
     esac
 
     if type -t send_notification >/dev/null 2>&1; then
@@ -126,10 +105,11 @@ update_package_lists() {
 
     case "$package_manager" in
         apt)
-            local upd_rc=0
-            apt-get -o Acquire::Retries=3 update >/dev/null 2>&1 || upd_rc=$?
+            local upd_rc=0 out=""
+            out="$(apt-get -o Acquire::Retries=3 update 2>&1)" || upd_rc=$?
             if [ "$upd_rc" -ne 0 ]; then
                 log_warning "apt-get update failed (exit code: $upd_rc)"
+                log_debug "apt-get update output: $out"
                 return 1
             fi
             ;;
@@ -157,7 +137,7 @@ list_available_updates() {
             apt_output="$(LC_ALL=C apt-get -s dist-upgrade 2>&1)" || apt_exit_code=$?
             if [ "$apt_exit_code" -ne 0 ]; then
                 log_error "apt-get dist-upgrade simulation failed with exit code $apt_exit_code"
-                echo "0"
+                echo "-1"
                 return 0
             fi
 
@@ -211,7 +191,8 @@ perform_updates() {
                 if [ "${#_sec_pkgs[@]}" -gt 0 ] && [ "$rc" -eq 0 ]; then
                     update_output=""
                     rc=0
-                    chunk_size=200
+                    local chunk_size=200
+                    local i
                     for ((i=0; i<${#_sec_pkgs[@]}; i+=chunk_size)); do
                         local -a pkgs=( "${_sec_pkgs[@]:i:chunk_size}" )
                         out=$(apt-get install -y --only-upgrade "${pkgs[@]}" -o Dpkg::Use-Pty=0 2>&1) || rc=$?
@@ -293,7 +274,11 @@ perform_auto_update() {
     # Count available updates
     local available_updates
     available_updates=$(list_available_updates "$package_manager" "$security_only")
-    log_info "Found $available_updates available updates"
+    if [ "$available_updates" = "-1" ]; then
+        log_warning "Unable to determine number of available updates"
+    else
+        log_info "Found $available_updates available updates"
+    fi
 
     # Perform updates
     local update_success=true
@@ -332,7 +317,11 @@ perform_auto_update() {
 
     log_info "$result_message"
 
-    return $([ "$update_success" = true ] && echo 0 || echo 1)
+    if [ "$update_success" = true ]; then
+        return 0
+    else
+        return 1
+    fi
 }
 
 # show_help prints the help/usage message for the auto-update script, including available options, examples, configuration notes, supported package managers, and default log file.
@@ -398,6 +387,10 @@ main() {
                 fi
                 if [ ! -r "$1" ]; then
                     log_error "Config file not found or not readable: $1"
+                    exit 1
+                fi
+                if [ ! -f "$1" ]; then
+                    log_error "Config file must be a regular file: $1"
                     exit 1
                 fi
                 if [ -L "$1" ]; then
