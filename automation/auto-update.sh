@@ -152,22 +152,21 @@ list_available_updates() {
 
     case "$package_manager" in
         apt)
-            # Capture apt-get output and exit code to avoid pipefail issues
-            local apt_output apt_exit_code
-            apt_output=$(apt-get -s dist-upgrade 2>&1); apt_exit_code=$?
-
+            # Capture apt-get output and exit code safely under set -e
+            local apt_output apt_exit_code=0
+            apt_output="$(LC_ALL=C apt-get -s dist-upgrade 2>&1)" || apt_exit_code=$?
             if [ "$apt_exit_code" -ne 0 ]; then
                 log_error "apt-get dist-upgrade simulation failed with exit code $apt_exit_code"
                 echo "0"
-                return 1
+                return 0
             fi
 
             if [ "$security_only" = "yes" ]; then
                 # Count security-related package updates (case-insensitive)
-                echo "$apt_output" | LC_ALL=C awk 'BEGIN{IGNORECASE=1} /^Inst/ && /security/ {c++} END{print c+0}'
+                echo "$apt_output" | awk 'BEGIN{IGNORECASE=1} /^Inst/ && /security/ {c++} END{print c+0}'
             else
                 # Count all available package updates
-                echo "$apt_output" | LC_ALL=C awk '/^Inst/ {c++} END{print c+0}'
+                echo "$apt_output" | awk '/^Inst/ {c++} END{print c+0}'
             fi
             ;;
         *)
@@ -199,13 +198,13 @@ perform_updates() {
             if [ "$security_only" = "yes" ]; then
                 # Build list of security-updated packages and upgrade only those (consistent with dist-upgrade simulation)
                 local out rc_sim=0
+                local -a _sec_pkgs=()
                 out="$(LC_ALL=C apt-get -s dist-upgrade 2>&1)" || rc_sim=$?
 
                 if [ "$rc_sim" -ne 0 ]; then
                     update_output="$out"
                     rc="$rc_sim"
                 else
-                    local -a _sec_pkgs=()
                     mapfile -t _sec_pkgs < <(awk 'BEGIN{IGNORECASE=1} /^Inst/ && /security/ {print $2}' <<< "$out")
                 fi
 
