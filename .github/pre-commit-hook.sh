@@ -30,7 +30,17 @@ for f in "${STAGED[@]}"; do
 done
 
 if [[ "${had_fix:-0}" -eq 1 ]]; then
-  git add -- *.sh *.bash 2>/dev/null || true
+  # Get exactly the files that were modified by our fixes
+  mapfile -d '' MODIFIED < <(git diff --name-only -z -- '*.sh' '*.bash' 2>/dev/null || true)
+  if [[ ${#MODIFIED[@]} -gt 0 ]]; then
+    for file in "${MODIFIED[@]}"; do
+      git add -- "$file"
+    done
+    echo "✳️ Auto-fixes applied to ${#MODIFIED[@]} file(s) and re-staged. Review with: git diff --staged"
+  else
+    echo "✳️ Auto-fixes applied but no shell files were modified"
+  fi
+  exit 1
 fi
 
 echo "✅ Pre-commit formatting checks passed"

@@ -162,9 +162,9 @@ This project uses automated formatting checks to maintain code quality. If you e
 **Auto-fix on commit (recommended):**
 ```bash
 ln -sf ../../.github/pre-commit-hook.sh .git/hooks/pre-commit
-```
 # Run from repo root. Alternatively:
-# git config core.hooksPath .github && cp .github/pre-commit-hook.sh .github/hooks/pre-commit
+git config core.hooksPath .github && cp .github/pre-commit-hook.sh .github/hooks/pre-commit
+```
 
 **Manual fixes:**
 ```bash
@@ -172,15 +172,40 @@ ln -sf ../../.github/pre-commit-hook.sh .git/hooks/pre-commit
 find . -name "*.sh" -exec sed -i -e 's/\t/    /g' -e 's/[[:space:]]*$//' {} +
 ```
 
-# GNU sed (Linux):
-#   find . -name "*.sh" -exec sed -i -e 's/\t/    /g' -e 's/[[:space:]]*$//' {} +
-# BSD/macOS sed:
-#   find . -name "*.sh" -exec sed -i '' -e 's/\t/    /g' -e 's/[[:space:]]*$//' {} +
+```bash
+find . -name "*.sh" -exec sed -i -e 's/\t/    /g' -e 's/[[:space:]]*$//' {} +
+```
 
 ### Running Tests
+
+#### Full Test Suite
 ```bash
-cd tests
-./run-tests.sh
+# Run all tests
+./tests/test-framework.sh
+
+# Run specific test categories
+./tests/test-framework.sh config    # Configuration tests
+./tests/test-framework.sh logging   # Logging tests
+./tests/test-framework.sh utils     # Utility functions
+./tests/test-framework.sh health    # Health check tests
+```
+
+#### Quick Automation Tests
+```bash
+# Run automation smoke tests (safe, non-destructive)
+./tests/test-automation.sh
+```
+
+#### Manual Validation
+```bash
+# ShellCheck linting (CI equivalent)
+shellcheck -x -s bash -e SC1091,SC2155,SC2034,SC2030,SC2031 install-proxmox-health.sh lib/*.sh
+
+# Bash syntax check
+for f in install-proxmox-health.sh lib/*.sh; do echo "Syntax check: $f"; bash -n "$f"; done
+
+# Formatting checks
+./scripts/fix-formatting.sh  # Auto-fix formatting issues
 ```
 
 ---

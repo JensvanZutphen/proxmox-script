@@ -11,6 +11,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 for f in "$SCRIPT_DIR/../lib/utils.sh" "$SCRIPT_DIR/../lib/notifications.sh" "/etc/proxmox-health/automation.conf"; do
     if [ -r "$f" ]; then
         if [ "$f" = "/etc/proxmox-health/automation.conf" ] && command -v stat >/dev/null 2>&1; then
+            # Check for symlinks first to prevent link attacks
+            if [ -L "$f" ]; then
+                echo "[$(date '+%Y-%m-%d %H:%M:%S')] [ERROR] Config file is a symlink (link attack prevention): $f" >&2
+                continue
+            fi
             owner_uid=$(stat -c '%u' "$f" 2>/dev/null || echo '')
             perms=$(stat -c '%a' "$f" 2>/dev/null || echo '000')
             grp_digit=$(( (10#$perms / 10) % 10 ))
@@ -29,8 +34,7 @@ done
 
 # --- Configuration ---
 DEFAULT_SECURITY_ONLY="yes"
-# Note: DEFAULT_EXCLUDE_PACKAGES is currently unused - remove or implement package exclusion
-# DEFAULT_EXCLUDE_PACKAGES=("kernel*" "proxmox*" "pve-*")
+# (reserved for future: package exclusion support)
 DEFAULT_LOG_FILE="/var/log/proxmox-health/auto-update.log"
 
 # Set noninteractive frontend to prevent prompts during unattended runs
@@ -66,7 +70,11 @@ log_debug() {
     fi
 }
 
-# send_automation_notification sends an automation-scoped notification with the given message and level, but only emits info-level notifications if AUTOMATION_NOTIFY_ON_SUCCESS="yes" and only emits warning/error/critical notifications when AUTOMATION_NOTIFY_ON_FAILURE is set to "warning" or "critical".
+# send_automation_notification sends an automation-scoped notification with the given message and level.
+# - info: only if AUTOMATION_NOTIFY_ON_SUCCESS="yes"
+# - warning: only if AUTOMATION_NOTIFY_ON_FAILURE="warning"
+# - error: only if AUTOMATION_NOTIFY_ON_FAILURE="warning"
+# - critical: only if AUTOMATION_NOTIFY_ON_FAILURE="warning" or "critical"
 send_automation_notification() {
     local message="$1"
     local level="${2:-info}"
@@ -76,8 +84,14 @@ send_automation_notification() {
       info)
         [ "${AUTOMATION_NOTIFY_ON_SUCCESS:-no}" = "yes" ] || return 0
         ;;
-      warning|error|critical)
-        [ "${AUTOMATION_NOTIFY_ON_FAILURE:-no}" = "warning" ] || [ "${AUTOMATION_NOTIFY_ON_FAILURE:-no}" = "critical" ] || return 0
+      warning)
+        [ "${AUTOMATION_NOTIFY_ON_FAILURE:-no}" = "warning" ] || return 0
+        ;;
+      error)
+        [ "${AUTOMATION_NOTIFY_ON_FAILURE:-no}" = "warning" ] || return 0
+        ;;
+      critical)
+        case "${AUTOMATION_NOTIFY_ON_FAILURE:-no}" in warning|critical) ;; * ) return 0 ;; esac
         ;;
     esac
 
@@ -138,11 +152,22 @@ list_available_updates() {
 
     case "$package_manager" in
         apt)
+            # Capture apt-get output and exit code to avoid pipefail issues
+            local apt_output apt_exit_code
+            apt_output=$(apt-get -s dist-upgrade 2>&1); apt_exit_code=$?
+
+            if [ "$apt_exit_code" -ne 0 ]; then
+                log_error "apt-get dist-upgrade simulation failed with exit code $apt_exit_code"
+                echo "0"
+                return 1
+            fi
+
             if [ "$security_only" = "yes" ]; then
-                # Use dist-upgrade for consistent simulation with actual upgrade command
-                apt-get -s dist-upgrade | awk 'BEGIN{IGNORECASE=1} /^Inst/ && /security/ {c++} END{print c+0}'
+                # Count security-related package updates (case-insensitive)
+                echo "$apt_output" | LC_ALL=C awk 'BEGIN{IGNORECASE=1} /^Inst/ && /security/ {c++} END{print c+0}'
             else
-                apt-get -s dist-upgrade | awk '/^Inst/ {c++} END{print c+0}'
+                # Count all available package updates
+                echo "$apt_output" | LC_ALL=C awk '/^Inst/ {c++} END{print c+0}'
             fi
             ;;
         *)
@@ -173,16 +198,26 @@ perform_updates() {
         apt)
             if [ "$security_only" = "yes" ]; then
                 # Build list of security-updated packages and upgrade only those (consistent with dist-upgrade simulation)
-                mapfile -t _sec_pkgs < <(apt-get -s dist-upgrade | awk 'BEGIN{IGNORECASE=1} /^Inst/ && /security/ {print $2}')
-                if [ "${#_sec_pkgs[@]}" -gt 0 ]; then
+                local out rc_sim=0
+                out="$(LC_ALL=C apt-get -s dist-upgrade 2>&1)" || rc_sim=$?
+
+                if [ "$rc_sim" -ne 0 ]; then
+                    update_output="$out"
+                    rc="$rc_sim"
+                else
+                    local -a _sec_pkgs=()
+                    mapfile -t _sec_pkgs < <(awk 'BEGIN{IGNORECASE=1} /^Inst/ && /security/ {print $2}' <<< "$out")
+                fi
+
+                if [ "${#_sec_pkgs[@]}" -gt 0 ] && [ "$rc" -eq 0 ]; then
                     update_output=""
                     rc=0
                     chunk_size=200
                     for ((i=0; i<${#_sec_pkgs[@]}; i+=chunk_size)); do
-                      pkgs=( "${_sec_pkgs[@]:i:chunk_size}" )
-                      out=$(apt-get install -y --only-upgrade "${pkgs[@]}" -o Dpkg::Use-Pty=0 2>&1) || rc=$?
-                      update_output+="$out"$'\n'
-                      [ "$rc" -ne 0 ] && break
+                        local -a pkgs=( "${_sec_pkgs[@]:i:chunk_size}" )
+                        out=$(apt-get install -y --only-upgrade "${pkgs[@]}" -o Dpkg::Use-Pty=0 2>&1) || rc=$?
+                        update_output+="$out"$'\n'
+                        [ "$rc" -ne 0 ] && break
                     done
                 else
                     update_output="No security updates available"; rc=0
@@ -366,6 +401,10 @@ main() {
                     log_error "Config file not found or not readable: $1"
                     exit 1
                 fi
+                if [ -L "$1" ]; then
+                    log_error "Config file must not be a symlink: $1"
+                    exit 1
+                fi
                 if command -v stat >/dev/null 2>&1; then
                   owner_uid=$(stat -c '%u' "$1" 2>/dev/null || echo '')
                   perms=$(stat -c '%a' "$1" 2>/dev/null || echo '000')
@@ -380,7 +419,12 @@ main() {
                 fi
                 source "$1"
                 # Ensure log directory exists after potentially updating DEFAULT_LOG_FILE
-                mkdir -p "$(dirname "$DEFAULT_LOG_FILE")"
+                if command -v install >/dev/null 2>&1; then
+                  install -d -m 0750 "$(dirname "$DEFAULT_LOG_FILE")"
+                else
+                  mkdir -p "$(dirname "$DEFAULT_LOG_FILE")"
+                  chmod 750 "$(dirname "$DEFAULT_LOG_FILE")" || true
+                fi
                 shift
                 ;;
             -s|--security)
@@ -408,7 +452,12 @@ main() {
     fi
 
     # Ensure log directory exists before any logging occurs
-    mkdir -p "$(dirname "$DEFAULT_LOG_FILE")"
+    if command -v install >/dev/null 2>&1; then
+      install -d -m 0750 "$(dirname "$DEFAULT_LOG_FILE")"
+    else
+      mkdir -p "$(dirname "$DEFAULT_LOG_FILE")"
+      chmod 750 "$(dirname "$DEFAULT_LOG_FILE")" || true
+    fi
 
     log_info "Starting auto-update system automation"
     log_debug "Configuration: security_only=$security_only, dry_run=$dry_run, log_level=${AUTOMATION_LOG_LEVEL:-INFO}"

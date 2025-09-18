@@ -10,8 +10,14 @@ if sed --version >/dev/null 2>&1; then SED_INPLACE=(-i); fi
 
 # Process tracked shell scripts only
 git ls-files -z -- '*.sh' '*.bash' | while IFS= read -r -d '' f; do
-  sed "${SED_INPLACE[@]}" $'s/\t/    /g' "$f"
-  sed "${SED_INPLACE[@]}" $'s/[[:space:]]*$//' "$f"
+  touched=0
+  if grep -q $'\t' -- "$f"; then
+    sed "${SED_INPLACE[@]}" $'s/\t/    /g' "$f"; touched=1
+  fi
+  if grep -q '[[:space:]]$' -- "$f"; then
+    sed "${SED_INPLACE[@]}" $'s/[[:space:]]*$//' "$f"; touched=1
+  fi
+  [[ $touched -eq 1 ]] && echo "Fixed: $f"
 done
 
 echo "✅ Formatting fixes applied!"
